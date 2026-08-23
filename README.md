@@ -26,7 +26,7 @@ The specifications the port was generated from are in
 
 📉 1,124 Python lines (behavioural slice) → **1,110 Java lines**<br>
 📁 372 Python files (whole project) → **18 files**<br>
-⚡ 0.676 s → **0.130 s**, submitting a text source and waiting for it to settle (5.2× faster)<br>
+⚡ 0.676 seconds → **0.130 seconds**, submitting a text source and waiting for it to settle (5.2× faster)<br>
 🎯 17 of 17 same-answer checks agree, across four workloads run against both systems live<br>
 🖥️ 4 processes (API, worker, SurrealDB, frontend) → **1 process**
 
@@ -80,20 +80,20 @@ browser for the entity diagram, the interaction path, and the component referenc
 ## Design decisions
 
 **The extraction fetch runs in a workflow, not inside the entity that owns the source's state.**
-An entity's command handler is for state transitions; a fetch to another server is an outbound
-call with its own latency and failure modes, which belongs in a workflow step instead. This
-keeps a source's own state machine — submitted, running, done or failed — free of anything that
-can hang or time out on the network.
+A fetch to another server can be slow or fail in ways a state transition should not have to
+know about, so it happens as its own step and only reports back what it found.
 
-**Every timestamp a rule needs is handed to the entity, not read from the system clock inside
-it.** The workflow that drives extraction reads the clock once and passes the instant along.
-This makes every rule about a source's lifecycle testable against a fixed moment in time, rather
-than against whatever the clock happens to read when a test runs.
+**Every timestamp a rule needs is handed in, never read from the system clock inside the code
+that uses it.** That is what lets every rule about a source's lifecycle be tested against a
+fixed moment in time, rather than against whatever the clock happens to read that day.
 
 **A notebook's own list of sources and notes lives on the notebook, not in a separate index.**
-Deleting a notebook needs to know what it holds; keeping that list directly on the notebook's
-own state answers the question with one read instead of a search across every source and note
-in the system.
+Deleting a notebook needs to know everything it holds, and keeping that list on the notebook
+itself answers that with one read instead of a search across every source and note that exists.
+
+**A failed attempt to delete one source does not stop the rest of a notebook's cleanup.** The
+original works the same way — one stuck source is a reason to skip it, not a reason to leave
+every other source and note in the notebook untouched.
 
 ---
 
