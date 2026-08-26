@@ -175,4 +175,37 @@ class NotebookDeletionWorkflowIntegrationTest extends TestKitSupport {
     assertThat(sourceAfter.exists()).isTrue();
     assertThat(sourceAfter.notebookIds()).isEmpty();
   }
+
+  @Test
+  void deletingANotebookDeletesEveryLinkedChatSession() {
+    String nb1 = newNotebook();
+    String chatId = UUID.randomUUID().toString();
+    componentClient
+        .forEventSourcedEntity(chatId)
+        .method(ChatSessionEntity::create)
+        .invoke(new ChatSessionEntity.Create(nb1, Instant.now()));
+    componentClient
+        .forEventSourcedEntity(nb1)
+        .method(NotebookEntity::linkChatSession)
+        .invoke(new NotebookEntity.ChatSessionLinked(chatId, Instant.now()));
+
+    String workflowId = "delete-chat-" + nb1;
+    componentClient
+        .forWorkflow(workflowId)
+        .method(NotebookDeletionWorkflow::start)
+        .invoke(new NotebookDeletionWorkflow.Start(nb1, true));
+
+    Awaitility.await()
+        .atMost(java.time.Duration.ofSeconds(10))
+        .untilAsserted(
+            () -> {
+              var result =
+                  componentClient.forWorkflow(workflowId).method(NotebookDeletionWorkflow::result).invoke();
+              assertThat(result.deletedChatSessions()).isEqualTo(1);
+            });
+
+    assertThatThrownBy(
+            () -> componentClient.forEventSourcedEntity(chatId).method(ChatSessionEntity::get).invoke())
+        .isInstanceOf(Exception.class);
+  }
 }

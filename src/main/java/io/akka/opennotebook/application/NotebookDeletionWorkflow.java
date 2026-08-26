@@ -25,11 +25,13 @@ public class NotebookDeletionWorkflow extends Workflow<NotebookDeletionWorkflow.
       int deletedNotes,
       int deletedSources,
       int unlinkedSources,
+      int deletedChatSessions,
       String status) {
 
     State done() {
       return new State(
-          notebookId, deleteExclusiveSources, deletedNotes, deletedSources, unlinkedSources, "done");
+          notebookId, deleteExclusiveSources, deletedNotes, deletedSources, unlinkedSources,
+          deletedChatSessions, "done");
     }
   }
 
@@ -48,7 +50,7 @@ public class NotebookDeletionWorkflow extends Workflow<NotebookDeletionWorkflow.
 
   public Effect<String> start(Start command) {
     return effects()
-        .updateState(new State(command.notebookId(), command.deleteExclusiveSources(), 0, 0, 0, "started"))
+        .updateState(new State(command.notebookId(), command.deleteExclusiveSources(), 0, 0, 0, 0, "started"))
         .transitionTo(NotebookDeletionWorkflow::cascadeStep)
         .thenReply("started");
   }
@@ -58,7 +60,8 @@ public class NotebookDeletionWorkflow extends Workflow<NotebookDeletionWorkflow.
       return effects().error("Deletion not complete");
     }
     var s = currentState();
-    return effects().reply(new DeleteResult(s.deletedNotes(), s.deletedSources(), s.unlinkedSources()));
+    return effects()
+        .reply(new DeleteResult(s.deletedNotes(), s.deletedSources(), s.unlinkedSources(), s.deletedChatSessions()));
   }
 
   @StepName("cascade")
@@ -108,6 +111,15 @@ public class NotebookDeletionWorkflow extends Workflow<NotebookDeletionWorkflow.
       }
     }
 
+    int deletedChatSessions = 0;
+    for (String chatId : notebook.chatSessionIds()) {
+      componentClient
+          .forEventSourcedEntity(chatId)
+          .method(ChatSessionEntity::delete)
+          .invoke(new ChatSessionEntity.ChatDeleted(Instant.now()));
+      deletedChatSessions++;
+    }
+
     componentClient
         .forEventSourcedEntity(notebookId)
         .method(NotebookEntity::delete)
@@ -116,7 +128,8 @@ public class NotebookDeletionWorkflow extends Workflow<NotebookDeletionWorkflow.
     return stepEffects()
         .updateState(
             new State(
-                notebookId, deleteExclusive, deletedNotes, deletedSources, unlinkedSources, "done"))
+                notebookId, deleteExclusive, deletedNotes, deletedSources, unlinkedSources,
+                deletedChatSessions, "done"))
         .thenEnd();
   }
 }

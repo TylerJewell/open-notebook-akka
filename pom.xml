@@ -11,4 +11,30 @@
     <version>1.0-SNAPSHOT</version>
     <packaging>jar</packaging>
     <name>open-notebook-akka</name>
+    <build>
+        <plugins>
+            <!-- OPEN_NOTEBOOK_ENCRYPTION_KEY is a required deployment env var (see README),
+                 mirroring the source's own hard requirement for credential encryption at rest.
+                 Tests set a fixed test-only value here rather than relying on the shell's
+                 environment, so `mvn test`/`mvn verify` are reproducible without local setup. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <environmentVariables>
+                        <OPEN_NOTEBOOK_ENCRYPTION_KEY>test-only-passphrase</OPEN_NOTEBOOK_ENCRYPTION_KEY>
+                    </environmentVariables>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-failsafe-plugin</artifactId>
+                <configuration>
+                    <environmentVariables>
+                        <OPEN_NOTEBOOK_ENCRYPTION_KEY>test-only-passphrase</OPEN_NOTEBOOK_ENCRYPTION_KEY>
+                    </environmentVariables>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
 </project>

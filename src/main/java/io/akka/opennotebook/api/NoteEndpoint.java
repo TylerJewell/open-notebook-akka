@@ -6,6 +6,7 @@ import akka.javasdk.annotations.http.Get;
 import akka.javasdk.annotations.http.HttpEndpoint;
 import akka.javasdk.annotations.http.Post;
 import akka.javasdk.client.ComponentClient;
+import akka.javasdk.http.AbstractHttpEndpoint;
 import akka.javasdk.http.HttpResponses;
 import io.akka.opennotebook.application.NoteEntity;
 import io.akka.opennotebook.application.NotebookEntity;
@@ -17,7 +18,7 @@ import java.util.UUID;
 
 @HttpEndpoint("/notes")
 @Acl(allow = @Acl.Matcher(principal = Acl.Principal.ALL))
-public class NoteEndpoint {
+public class NoteEndpoint extends AbstractHttpEndpoint {
 
   public record CreateRequest(String title, String content, String notebookId) {}
 
@@ -32,6 +33,8 @@ public class NoteEndpoint {
 
   @Post("")
   public HttpResponse create(CreateRequest request) {
+    var unauthorized = AuthGuard.check(requestContext());
+    if (unauthorized != null) return unauthorized;
     if (request.notebookId() == null || request.notebookId().isBlank()) {
       return HttpResponses.badRequest("Notebook ID must be provided");
     }
@@ -58,6 +61,8 @@ public class NoteEndpoint {
 
   @Get("/{noteId}")
   public HttpResponse get(String noteId) {
+    var unauthorized = AuthGuard.check(requestContext());
+    if (unauthorized != null) return unauthorized;
     Note note = fetch(noteId);
     if (note == null) {
       return HttpResponses.notFound("Note not found");

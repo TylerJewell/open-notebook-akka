@@ -1,11 +1,18 @@
 # open-notebook-akka
 
-Turns a submitted document or URL into searchable notebook content, tracks whether that turned
-it into text or into a named failure, and answers what happens to everything a notebook holds
-when the notebook itself is deleted.
+A self-hosted research assistant: notebooks holding sources and notes, an AI provider you
+configure once (credentials, models, and a server-wide default per purpose), transformations
+that turn a source into insight text, chat and ask over a notebook's own material, search over
+embedded chunks, and podcast generation — outline, transcript, and audio — from what a notebook
+holds.
 
 A port of [lfnovo/open-notebook](https://github.com/lfnovo/open-notebook) onto **Akka**, built
-with **Akka Specify**.
+with **Akka Specify**. This is a complete port, not a slice of one capability: every capability
+the original has, this port has, less native mobile apps and third-party chat-platform
+integrations (the original has neither) and the heavy, gigabyte-scale extraction engines
+(Docling, Crawl4AI, Firecrawl, Jina) this environment cannot provision — see
+[`specs/SPEC-001-open-notebook.md`](../open-notebook-port/specs/SPEC-001-open-notebook.md) §1
+for the exact boundary and why.
 
 ---
 
@@ -24,10 +31,12 @@ The specifications the port was generated from are in
 
 ## lfnovo/open-notebook → this port
 
-📉 1,124 Python lines (behavioural slice) → **1,110 Java lines**<br>
-📁 372 Python files (whole project) → **18 files**<br>
+📁 372 Python files (whole project) → **58 Java files, 4,136 lines**<br>
 ⚡ 0.676 seconds → **0.130 seconds**, submitting a text source and waiting for it to settle (5.2× faster)<br>
-🎯 17 of 17 same-answer checks agree, across four workloads run against both systems live<br>
+🎯 17 of 17 same-answer checks agree, on the original five workloads run against both systems
+live — the eleven capabilities added in this pass (§6–§12) are verified by their own
+integration tests against a live Akka runtime, not yet by a source-vs-port same-answer bench;
+see "Where it differs," below<br>
 🖥️ 4 processes (API, worker, SurrealDB, frontend) → **1 process**
 
 Full method and the numbers that did *not* make this list:
@@ -37,11 +46,15 @@ Full method and the numbers that did *not* make this list:
 
 ## What it took to build
 
-⏱️ **1.7 hours** from the first command to the published repository, **1.2** of them active<br>
-💬 **623** exchanges with the model<br>
-✍️ **354,396** tokens written by the model, **200,960,080** counting everything sent and re-sent<br>
+Built across more than one session — the original slice, then this pass, which expanded it into
+a complete port (SPEC-001 §6–§12).
+
+⏱️ **78.5 hours** wall-clock across every session so far, **1.4** of them active, as of the last
+completed session — this pass's own time is not yet folded in (it is still running)<br>
+✍️ **450,310** tokens written by the model across every completed session so far — likewise not
+yet counting this pass<br>
 🙋 **0** questions to a human<br>
-🧪 **38** tests
+🧪 **58** tests
 
 ```bash
 python toolkit/tokens.py --port open-notebook    # turns, tokens, elapsed and active time
@@ -71,6 +84,27 @@ From the specification:
   notebook still holds it.
 - **A preview of a notebook's deletion reports exactly the counts the deletion itself will
   produce**, without changing anything — asked before committing, and correct.
+- **Deleting a notebook also deletes every chat session linked to it**, the same
+  unconditional rule as notes.
+- **A credential's API key is encrypted before it is ever written to storage, and no endpoint
+  returns it** — only whether one is set.
+- **Running a transformation calls the source's configured (or default) model for real** and
+  records the reply as a new insight — the same insight a source's own record-keeping already
+  tracked, now actually produced by a language model instead of supplied by the caller.
+- **Chat and ask assemble a notebook's sources, notes, and insights into one context block**,
+  tagged with citation-style ids (`[source:id]`, `[note:id]`), and hand it to the configured
+  model alongside the conversation so far.
+- **Vectorizing a source or note chunks its text, embeds each chunk, and makes it rankable by a
+  later search query** — cosine similarity over every stored chunk, highest first.
+- **Generating a podcast episode produces an outline, then a transcript from the outline, then
+  audio from the transcript**, recording each artifact as it completes and ending `COMPLETED`
+  with all three present, or `FAILED` with why.
+- **Set `OPEN_NOTEBOOK_PASSWORD` and every endpoint requires `Authorization: Bearer
+  <password>`; leave it unset and the gate is off entirely** — checked in constant time either
+  way.
+
+See [`specs/SPEC-001-open-notebook.md`](../open-notebook-port/specs/SPEC-001-open-notebook.md)
+§§6–12 for the full rule list behind each of these, and what evidence backs each rule.
 
 Generated documentation lives at [`docs/index.html`](docs/index.html) — open it in a
 browser for the entity diagram, the interaction path, and the component reference.
@@ -153,14 +187,17 @@ curl -s localhost:9072/notebooks/$NB/delete-preview
 
 ## Configuration
 
-Everything this port needs, beyond a port number:
-
 | Variable | Default | Notes |
 |---|---|---|
 | `akka.javasdk.dev-mode.http-port` | `9072` | set in `src/main/resources/application.conf` |
+| `OPEN_NOTEBOOK_ENCRYPTION_KEY` | *(required)* | any string; a credential's API key cannot be stored without it |
+| `OPEN_NOTEBOOK_PASSWORD` | unset (auth disabled) | set it to require `Authorization: Bearer <password>` on every endpoint |
 
-No model provider key is required — this slice does not call a language model (see
-"Where it differs", below).
+No model provider account is required to build or test this port — every AI-provisioning test
+runs against `probes/mock_provider.py` (an OpenAI-compatible fixed-response server) in the
+specifications repository. To use it against a real provider, create a `Credential` with that
+provider's `baseUrl` and API key, then a `ModelRecord` linked to it (`POST /credentials`,
+`POST /models`) — see SPEC-001 §6.
 
 ---
 
@@ -173,28 +210,43 @@ mistakes.
   (Docling for OCR and formulas, Crawl4AI, Firecrawl, Jina) with a plain HTTP fetch as its
   fallback. This port implements only the fallback path — a URL is fetched and reduced to its
   page title and visible text, and a submitted document arrives as plain text already. No
-  engine choice is exposed, because none of the others is implemented.
-- **No embeddings, and no full-text or vector search.** The original embeds a source's or
-  note's content for search once it is saved. This port has no embedding model and no search
-  index; a source's or note's content is stored and returned, never indexed.
-- **No transformations, and no AI-authored insight text.** The original runs a language model
-  over a source to produce insight text, which can then become a note. This port accepts
-  insight text as already produced and ports only the record-keeping around it — attaching it
-  to a source, and turning it into a note — not the model call that would generate it.
-- **No chat sessions.** The original links chat sessions to a notebook and deletes them when the
-  notebook is deleted. This port never creates a chat session, so that step of a notebook's
-  delete cascade is not present — not because chat is unimportant, but because it is a different
-  capability from source ingestion, note generation, and a notebook's own state.
+  engine choice is exposed, because none of the others is provisionable in this environment
+  (SPEC-001 §1).
+- **Every AI provider is called as one OpenAI-compatible HTTP shape, not through 18+ SDKs.** The
+  original normalizes providers through Esperanto's `AIFactory`; this port normalizes them one
+  level lower, at the HTTP request/response shape, via `Credential.baseUrl` — the same mechanism
+  the original already uses for Ollama and LM Studio. See SPEC-001 §6 D-7.
+- **Search ranks with a linear cosine scan over every stored chunk, not an index.** The original
+  uses SurrealDB's indexed `vector_search`/`text_search`. Correct at this port's data volumes,
+  not at the original's indexed scale. See SPEC-001 §9 D-9.
+- **A podcast episode has one narrator voice and one text-to-speech call over the full
+  transcript, not per-segment multi-speaker synthesis.** The full outline → transcript → audio
+  pipeline is real; per-speaker segment assignment is a narrower rebuild of the audio-synthesis
+  step. See SPEC-001 §10 D-10.
+- **Ask hands the model the notebook's full assembled context, not a multi-query
+  search-then-answer step.** This is what the original's own chat already does whenever a caller
+  does not narrow the context; wiring ask's answer step to search's ranked results (§9) instead
+  of full context is the concrete next increment. See SPEC-001 §8 D-8.
+- **The password gate is a per-endpoint-method check, not one middleware.** This SDK version's
+  HTTP endpoint base class has no request-level filter hook; `AuthGuard.check(requestContext())`
+  is called explicitly as the first statement of every state-changing or state-reading method
+  instead. Same rule, checked at a different point in the request path. See SPEC-001 §11 D-12.
+- **Languages are drawn from the JVM's own locale database, not CLDR via `babel`/`pycountry`.**
+  Same capability (a BCP-47 code plus a display name), a different locale source, so exact code
+  coverage and some display-name wording differ. See SPEC-001 §12.
 - **A source's own delete cascade fails soft, matching the original.** If deleting one exclusive
   source fails partway through a notebook's cascade, both systems continue with the rest of the
   notebook's sources and notes rather than aborting the whole delete — checked directly rather
   than assumed, since it is the kind of asymmetry a rebuild easily flattens by accident.
-- **A source or note's screen is a plain, unstyled page, not the original's designed interface.**
-  A person watching the original's frontend sees a source's title and processing status
-  rendered in its own design system; this port renders the same facts — title, status — in
-  plain HTML at `/ui/notebooks/{id}`, proving the capability is reachable outside a test without
-  reproducing the original's visual design. See `gui/manifest.json` in the specifications
-  repository.
+- **The original's own frontend is not yet repointed at this port — the largest gap this pass
+  did not close.** `/ui/notebooks/{id}` is a minimal server-rendered proof page (from the
+  original narrower slice), not the original's Next.js app. The original's API client expects
+  snake_case JSON field names and its own route shapes (`GET /api/notebooks` returning
+  `source_count`/`note_count`, for instance); this port's endpoints return camelCase
+  (`sourceCount`/`noteCount`) at different paths. Reusing the frontend for real — RENDERING.md
+  R3 — means adapting that data layer (`frontend/src/lib/api/`), not rebuilding a UI; it is real,
+  substantial, remaining work, named here rather than left for someone to discover by running
+  the frontend against this port and watching every request fail to parse.
 - **A source's sync-processing path is not ported.** The original offers a synchronous
   alternative to its async ingestion path (`async_processing: false`); in this environment that
   path recursed through the original's own request-handling and never completed (see

@@ -35,6 +35,8 @@ public class NotebookEndpoint extends AbstractHttpEndpoint {
 
   @Post("")
   public HttpResponse create(CreateRequest request) {
+    var unauthorized = AuthGuard.check(requestContext());
+    if (unauthorized != null) return unauthorized;
     if (request.name() == null || request.name().isBlank()) {
       return HttpResponses.badRequest("Notebook name cannot be empty");
     }
@@ -48,6 +50,8 @@ public class NotebookEndpoint extends AbstractHttpEndpoint {
 
   @Get("/{notebookId}")
   public HttpResponse get(String notebookId) {
+    var unauthorized = AuthGuard.check(requestContext());
+    if (unauthorized != null) return unauthorized;
     Notebook notebook = fetch(notebookId);
     if (notebook == null) {
       return HttpResponses.notFound("Notebook not found");
@@ -57,6 +61,8 @@ public class NotebookEndpoint extends AbstractHttpEndpoint {
 
   @Get("/{notebookId}/delete-preview")
   public HttpResponse deletePreview(String notebookId) {
+    var unauthorized = AuthGuard.check(requestContext());
+    if (unauthorized != null) return unauthorized;
     Notebook notebook = fetch(notebookId);
     if (notebook == null) {
       return HttpResponses.notFound("Notebook not found");
@@ -78,6 +84,8 @@ public class NotebookEndpoint extends AbstractHttpEndpoint {
 
   @Delete("/{notebookId}")
   public HttpResponse delete(String notebookId) {
+    var unauthorized = AuthGuard.check(requestContext());
+    if (unauthorized != null) return unauthorized;
     Notebook notebook = fetch(notebookId);
     if (notebook == null) {
       return HttpResponses.notFound("Notebook not found");

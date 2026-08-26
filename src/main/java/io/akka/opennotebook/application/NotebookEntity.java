@@ -31,6 +31,9 @@ public class NotebookEntity extends EventSourcedEntity<Notebook, NotebookEntity.
   @TypeName("note-linked")
   public record NoteLinked(String noteId, Instant at) implements Event {}
 
+  @TypeName("chat-session-linked")
+  public record ChatSessionLinked(String chatId, Instant at) implements Event {}
+
   @TypeName("notebook-deleted")
   public record NotebookDeleted(Instant at) implements Event {}
 
@@ -38,7 +41,7 @@ public class NotebookEntity extends EventSourcedEntity<Notebook, NotebookEntity.
 
   @Override
   public Notebook emptyState() {
-    return new Notebook(null, null, null, false, Set.of(), Set.of(), null, null, false);
+    return new Notebook(null, null, null, false, Set.of(), Set.of(), Set.of(), null, null, false);
   }
 
   public Effect<Done> create(Create command) {
@@ -67,6 +70,13 @@ public class NotebookEntity extends EventSourcedEntity<Notebook, NotebookEntity.
     return effects().persist(command).thenReply(s -> Done.getInstance());
   }
 
+  public Effect<Done> linkChatSession(ChatSessionLinked command) {
+    if (!currentState().exists()) {
+      return effects().error("Notebook not found");
+    }
+    return effects().persist(command).thenReply(s -> Done.getInstance());
+  }
+
   public Effect<Done> delete(NotebookDeleted command) {
     if (!currentState().exists()) {
       return effects().error("Notebook not found");
@@ -88,6 +98,7 @@ public class NotebookEntity extends EventSourcedEntity<Notebook, NotebookEntity.
           Notebook.create(e.notebookId(), e.name(), e.description(), e.createdAt());
       case SourceLinked e -> currentState().withSourceLinked(e.sourceId(), e.at());
       case NoteLinked e -> currentState().withNoteLinked(e.noteId(), e.at());
+      case ChatSessionLinked e -> currentState().withChatSessionLinked(e.chatId(), e.at());
       case NotebookDeleted e -> currentState().withDeleted(e.at());
     };
   }
