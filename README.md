@@ -49,10 +49,9 @@ Full method and the numbers that did *not* make this list:
 Built across more than one session — the original slice, then this pass, which expanded it into
 a complete port (SPEC-001 §6–§12).
 
-⏱️ **78.5 hours** wall-clock across every session so far, **1.4** of them active, as of the last
-completed session — this pass's own time is not yet folded in (it is still running)<br>
-✍️ **450,310** tokens written by the model across every completed session so far — likewise not
-yet counting this pass<br>
+⏱️ **79.7 hours** wall-clock across every session so far, **2.5** of them active<br>
+✍️ **853,104** tokens written by the model across every session so far, this pass included —
+refresh with the command below for the final figure once this pass's session log settles<br>
 🙋 **0** questions to a human<br>
 🧪 **58** tests
 
