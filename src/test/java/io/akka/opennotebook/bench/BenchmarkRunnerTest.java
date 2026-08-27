@@ -22,9 +22,9 @@ import org.junit.jupiter.api.Test;
  * an isolated decision neither system exposes that way). Writes {@code target/bench-java.json};
  * {@code bench/compare.py} reads it alongside {@code bench/answers-source.json}.
  *
- * <p>Run with {@code mvn -q -o test -Dtest=BenchmarkRunner}.
+ * <p>Run with {@code mvn -q -o test -Dtest=BenchmarkRunnerTest}.
  */
-class BenchmarkRunner extends TestKitSupport {
+class BenchmarkRunnerTest extends TestKitSupport {
 
   @Test
   void run() throws IOException {
