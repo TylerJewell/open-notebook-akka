@@ -46,14 +46,15 @@ Full method and the numbers that did *not* make this list:
 
 ## What it took to build
 
-Built across more than one session — the original slice, then this pass, which expanded it into
-a complete port (SPEC-001 §6–§12).
+Built across more than one session — the original slice, then a pass that expanded it into a
+complete port (SPEC-001 §6–§12), then this pass, which closed the RENDERING.md R3 gap the
+prior pass left open (the vendored, repointed frontend).
 
-⏱️ **79.7 hours** wall-clock across every session so far, **2.5** of them active<br>
-✍️ **853,104** tokens written by the model across every session so far, this pass included —
-refresh with the command below for the final figure once this pass's session log settles<br>
+⏱️ **108.3 hours** wall-clock across every session so far, **3.8** of them active<br>
+✍️ **1,439,833** tokens written by the model across every session so far<br>
 🙋 **0** questions to a human<br>
-🧪 **58** tests
+🧪 **64** backend tests (45 unit + 19 integration), **140** frontend tests (23 files, unmodified
+by this port beyond the two files RENDERING.md R4 sanctioned changing)
 
 ```bash
 python toolkit/tokens.py --port open-notebook    # turns, tokens, elapsed and active time
