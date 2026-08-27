@@ -31,12 +31,15 @@ The specifications the port was generated from are in
 
 ## lfnovo/open-notebook → this port
 
-📁 372 Python files (whole project) → **58 Java files, 4,136 lines**<br>
+📁 367 source files, 63,053 lines (whole project, `frontend/node_modules` excluded as
+vendored) → **75 Java files, 5,813 production lines** (22 files, 1,657 lines of tests,
+reported apart)<br>
 ⚡ 0.676 seconds → **0.130 seconds**, submitting a text source and waiting for it to settle (5.2× faster)<br>
-🎯 17 of 17 same-answer checks agree, on the original five workloads run against both systems
-live — the eleven capabilities added in this pass (§6–§12) are verified by their own
-integration tests against a live Akka runtime, not yet by a source-vs-port same-answer bench;
-see "Where it differs," below<br>
+🎯 46 of 47 same-answer checks agree, across sixteen workloads run against both systems live —
+the four original source-ingestion workloads plus the twelve SPEC-001 §6–§12 added (auth,
+credentials, models, transformations, chat, ask, search, podcasts, settings); the one
+disagreement is a mock-provider fidelity boundary, not a behavioral difference — see
+[`bench/REPORT.md`](../open-notebook-port/bench/REPORT.md) §1b<br>
 🖥️ 4 processes (API, worker, SurrealDB, frontend) → **1 process**
 
 Full method and the numbers that did *not* make this list:
@@ -47,11 +50,13 @@ Full method and the numbers that did *not* make this list:
 ## What it took to build
 
 Built across more than one session — the original slice, then a pass that expanded it into a
-complete port (SPEC-001 §6–§12), then this pass, which closed the RENDERING.md R3 gap the
-prior pass left open (the vendored, repointed frontend).
+complete port (SPEC-001 §6–§12), then a pass that closed the RENDERING.md R3 gap (the
+vendored, repointed frontend), then this pass, which re-ran step e's same-answers-first and
+size measurements against the complete-port build rather than the slice they had described
+since the expansion (`bench/REPORT.md`).
 
-⏱️ **108.3 hours** wall-clock across every session so far, **3.8** of them active<br>
-✍️ **1,439,833** tokens written by the model across every session so far<br>
+⏱️ **109.2 hours** wall-clock across every session so far, **4.7** of them active<br>
+✍️ **1,855,239** tokens written by the model across every session so far<br>
 🙋 **0** questions to a human<br>
 🧪 **64** backend tests (45 unit + 19 integration), **140** frontend tests (23 files, unmodified
 by this port beyond the two files RENDERING.md R4 sanctioned changing)
@@ -251,6 +256,17 @@ mistakes.
   the one polling call site SPEC-001's own rules govern. See `specs/RENDER-001-open-notebook.md`
   in the port folder for the full R1/R3/R5 compliance record, including what was checked and
   what a probe found only partially reproducible.
+- **Podcast outline and transcript text is stored as the model returned it, not validated
+  against a schema.** The original parses each step's reply as JSON against a Pydantic model —
+  a segment's `size` must be one of `short`/`medium`/`long`, and a transcript line's `speaker`
+  must name one of the episode's actually configured speakers — and fails the whole generation,
+  with no partial artifact kept, if the model's reply doesn't comply. This port's `AiClient`
+  returns the model's raw text and stores it directly; a differently-shaped or off-roster reply
+  from a real provider would be accepted here where the original would reject it. Both sides
+  were driven against the same fixed-response test double
+  (`open-notebook-port/probes/mock_provider.py`) and the difference is real, not a benchmark
+  artifact — the original's validation genuinely goes further than this port's. See
+  `bench/REPORT.md` §1b for the run that found it.
 - **A source's sync-processing path is not ported.** The original offers a synchronous
   alternative to its async ingestion path (`async_processing: false`); in this environment that
   path recursed through the original's own request-handling and never completed (see
