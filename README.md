@@ -51,12 +51,14 @@ Full method and the numbers that did *not* make this list:
 
 Built across more than one session — the original slice, then a pass that expanded it into a
 complete port (SPEC-001 §6–§12), then a pass that closed the RENDERING.md R3 gap (the
-vendored, repointed frontend), then this pass, which re-ran step e's same-answers-first and
-size measurements against the complete-port build rather than the slice they had described
-since the expansion (`bench/REPORT.md`).
+vendored, repointed frontend), then a pass that re-ran step e's same-answers-first and size
+measurements against the complete-port build rather than the slice they had described since
+the expansion, then this pass, which independently re-verified every mechanical gate and
+closed a `.vendored`/`copied_strings.py` disclosure gap the frontend vendoring had left open
+(`bench/REPORT.md`).
 
-⏱️ **109.2 hours** wall-clock across every session so far, **4.7** of them active<br>
-✍️ **1,855,239** tokens written by the model across every session so far<br>
+⏱️ **109.5 hours** wall-clock across every session so far, **5.0** of them active<br>
+✍️ **1,961,053** tokens written by the model across every session so far<br>
 🙋 **0** questions to a human<br>
 🧪 **64** backend tests (45 unit + 19 integration), **140** frontend tests (23 files, unmodified
 by this port beyond the two files RENDERING.md R4 sanctioned changing)
