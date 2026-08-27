@@ -53,14 +53,16 @@ Built across more than one session — the original slice, then a pass that expa
 complete port (SPEC-001 §6–§12), then a pass that closed the RENDERING.md R3 gap (the
 vendored, repointed frontend), then a pass that re-ran step e's same-answers-first and size
 measurements against the complete-port build rather than the slice they had described since
-the expansion, then this pass, which independently re-verified every mechanical gate and
-closed a `.vendored`/`copied_strings.py` disclosure gap the frontend vendoring had left open
+the expansion, then a pass that independently re-verified every mechanical gate and closed a
+`.vendored`/`copied_strings.py` disclosure gap the frontend vendoring had left open, then this
+pass, which renamed the one JUnit test class whose name fell outside Surefire's default
+include pattern so the ordinary `mvn test` lifecycle actually runs it
 (`bench/REPORT.md`).
 
-⏱️ **109.5 hours** wall-clock across every session so far, **5.0** of them active<br>
-✍️ **1,961,053** tokens written by the model across every session so far<br>
+⏱️ **109.8 hours** wall-clock across every session so far, **5.2** of them active<br>
+✍️ **2,013,926** tokens written by the model across every session so far<br>
 🙋 **0** questions to a human<br>
-🧪 **64** backend tests (45 unit + 19 integration), **140** frontend tests (23 files, unmodified
+🧪 **65** backend tests (46 unit + 19 integration), **140** frontend tests (23 files, unmodified
 by this port beyond the two files RENDERING.md R4 sanctioned changing)
 
 ```bash
