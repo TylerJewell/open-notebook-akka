@@ -31,12 +31,16 @@ public class EmbeddingsView extends View {
     }
   }
 
-  @Query("SELECT * AS items FROM chunks ORDER BY ownerId")
+  // No ORDER BY on either query -- see CredentialsView's class doc. all() has no WHERE at all;
+  // byOwner()'s WHERE filters on ownerId, not chunkIndex. SearchEndpoint/ApiSearchEndpoint's own
+  // cosine-similarity ranking doesn't depend on read order, and the vectorize/rebuild loops that
+  // read byOwner() only need "every chunk for this owner", not chunk-index order.
+  @Query("SELECT * AS items FROM chunks")
   public QueryEffect<Entries> all() {
     return queryResult();
   }
 
-  @Query("SELECT * AS items FROM chunks WHERE ownerId = :ownerId ORDER BY chunkIndex")
+  @Query("SELECT * AS items FROM chunks WHERE ownerId = :ownerId")
   public QueryEffect<Entries> byOwner(String ownerId) {
     return queryResult();
   }

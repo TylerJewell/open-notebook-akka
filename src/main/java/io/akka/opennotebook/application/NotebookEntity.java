@@ -28,16 +28,25 @@ public class NotebookEntity extends EventSourcedEntity<Notebook, NotebookEntity.
   @TypeName("source-linked")
   public record SourceLinked(String sourceId, Instant at) implements Event {}
 
+  @TypeName("source-unlinked")
+  public record SourceUnlinked(String sourceId, Instant at) implements Event {}
+
   @TypeName("note-linked")
   public record NoteLinked(String noteId, Instant at) implements Event {}
 
   @TypeName("chat-session-linked")
   public record ChatSessionLinked(String chatId, Instant at) implements Event {}
 
+  @TypeName("notebook-updated")
+  public record NotebookUpdated(String name, String description, boolean archived, Instant at)
+      implements Event {}
+
   @TypeName("notebook-deleted")
   public record NotebookDeleted(Instant at) implements Event {}
 
   public record Create(String name, String description, Instant now) {}
+
+  public record Update(String name, String description, Boolean archived, Instant now) {}
 
   @Override
   public Notebook emptyState() {
@@ -61,6 +70,27 @@ public class NotebookEntity extends EventSourcedEntity<Notebook, NotebookEntity.
       return effects().error("Notebook not found");
     }
     return effects().persist(command).thenReply(s -> Done.getInstance());
+  }
+
+  public Effect<Done> unlinkSource(SourceUnlinked command) {
+    if (!currentState().exists()) {
+      return effects().error("Notebook not found");
+    }
+    return effects().persist(command).thenReply(s -> Done.getInstance());
+  }
+
+  public Effect<Done> update(Update command) {
+    if (!currentState().exists()) {
+      return effects().error("Notebook not found");
+    }
+    String name = command.name() == null ? currentState().name() : command.name();
+    if (name == null || name.isBlank()) {
+      return effects().error("Notebook name cannot be empty");
+    }
+    String description = command.description() == null ? currentState().description() : command.description();
+    boolean archived = command.archived() == null ? currentState().archived() : command.archived();
+    var event = new NotebookUpdated(name, description, archived, command.now());
+    return effects().persist(event).thenReply(s -> Done.getInstance());
   }
 
   public Effect<Done> linkNote(NoteLinked command) {
@@ -97,8 +127,10 @@ public class NotebookEntity extends EventSourcedEntity<Notebook, NotebookEntity.
       case NotebookCreated e ->
           Notebook.create(e.notebookId(), e.name(), e.description(), e.createdAt());
       case SourceLinked e -> currentState().withSourceLinked(e.sourceId(), e.at());
+      case SourceUnlinked e -> currentState().withSourceUnlinked(e.sourceId(), e.at());
       case NoteLinked e -> currentState().withNoteLinked(e.noteId(), e.at());
       case ChatSessionLinked e -> currentState().withChatSessionLinked(e.chatId(), e.at());
+      case NotebookUpdated e -> currentState().withUpdated(e.name(), e.description(), e.archived(), e.at());
       case NotebookDeleted e -> currentState().withDeleted(e.at());
     };
   }

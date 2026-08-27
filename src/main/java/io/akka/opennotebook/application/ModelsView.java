@@ -26,12 +26,15 @@ public class ModelsView extends View {
     }
   }
 
-  @Query("SELECT * AS items FROM models ORDER BY name")
+  // No ORDER BY on either query -- see CredentialsView's class doc: a real-runtime constraint
+  // this project's tests never exercised until this port ran as a live service, not just
+  // through TestKit. all() has no WHERE at all; byType()'s WHERE filters on type, not name.
+  @Query("SELECT * AS items FROM models")
   public QueryEffect<Entries> all() {
     return queryResult();
   }
 
-  @Query("SELECT * AS items FROM models WHERE type = :type ORDER BY name")
+  @Query("SELECT * AS items FROM models WHERE type = :type")
   public QueryEffect<Entries> byType(String type) {
     return queryResult();
   }

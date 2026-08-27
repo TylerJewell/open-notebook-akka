@@ -45,6 +45,10 @@ public record Note(
     return new Note(noteId, title, content, noteType, linked, createdAt, now, deleted);
   }
 
+  public Note withEdited(String title, String content, Instant now) {
+    return new Note(noteId, title, content, noteType, notebookIds, createdAt, now, deleted);
+  }
+
   public Note withDeleted(Instant now) {
     return new Note(noteId, title, content, noteType, Set.of(), createdAt, now, true);
   }

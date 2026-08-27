@@ -32,8 +32,13 @@ public class NoteEntity extends EventSourcedEntity<Note, NoteEntity.Event> {
   @TypeName("note-deleted")
   public record NoteDeleted(Instant at) implements Event {}
 
+  @TypeName("note-updated")
+  public record NoteUpdated(String title, String content, Instant at) implements Event {}
+
   public record Create(
       String title, String content, NoteType noteType, List<String> notebookIds, Instant now) {}
+
+  public record Update(String title, String content, Instant now) {}
 
   @Override
   public Note emptyState() {
@@ -65,6 +70,19 @@ public class NoteEntity extends EventSourcedEntity<Note, NoteEntity.Event> {
     return effects().persist(command).thenReply(s -> Done.getInstance());
   }
 
+  public Effect<Done> update(Update command) {
+    if (!currentState().exists()) {
+      return effects().error("Note not found");
+    }
+    if (command.content() != null && command.content().isBlank()) {
+      return effects().error("Note content cannot be empty");
+    }
+    String title = command.title() == null ? currentState().title() : command.title();
+    String content = command.content() == null ? currentState().content() : command.content();
+    var event = new NoteUpdated(title, content, command.now());
+    return effects().persist(event).thenReply(s -> Done.getInstance());
+  }
+
   public Effect<Done> delete(NoteDeleted command) {
     if (!currentState().exists()) {
       return effects().error("Note not found");
@@ -85,6 +103,7 @@ public class NoteEntity extends EventSourcedEntity<Note, NoteEntity.Event> {
       case NoteCreated e ->
           Note.create(e.noteId(), e.title(), e.content(), e.noteType(), e.notebookIds(), e.at());
       case NotebookLinked e -> currentState().withNotebookLinked(e.notebookId(), e.at());
+      case NoteUpdated e -> currentState().withEdited(e.title(), e.content(), e.at());
       case NoteDeleted e -> currentState().withDeleted(e.at());
     };
   }

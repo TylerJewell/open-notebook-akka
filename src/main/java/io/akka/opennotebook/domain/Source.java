@@ -106,6 +106,12 @@ public record Source(
         deleted);
   }
 
+  public Source withTitle(String title, Instant now) {
+    return new Source(
+        sourceId, title, url, filePath, fullText, status, errorMessage, notebookIds, insights,
+        createdAt, now, deleted);
+  }
+
   public Source withNotebookLinked(String notebookId, Instant now) {
     var linked = new java.util.LinkedHashSet<>(notebookIds);
     linked.add(notebookId);
@@ -159,6 +165,14 @@ public record Source(
         createdAt,
         now,
         deleted);
+  }
+
+  public Source withInsightRemoved(int index, Instant now) {
+    var updated = new java.util.ArrayList<>(insights);
+    updated.remove(index);
+    return new Source(
+        sourceId, title, url, filePath, fullText, status, errorMessage, notebookIds,
+        List.copyOf(updated), createdAt, now, deleted);
   }
 
   /** R9: exclusive to a notebook means linked to that one and no other. */

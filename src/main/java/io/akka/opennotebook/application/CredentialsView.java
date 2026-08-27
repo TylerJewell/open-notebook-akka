@@ -30,7 +30,10 @@ public class CredentialsView extends View {
     }
   }
 
-  @Query("SELECT * AS items FROM credentials ORDER BY createdAtMillis")
+  // No ORDER BY: a WHERE-less query cannot sort on the real runtime ("ORDER BY columns must
+  // also be indexed (part of the WHERE conditions)") -- see SourcesView's class doc, found while
+  // running this port as a real service rather than only through TestKit-backed tests.
+  @Query("SELECT * AS items FROM credentials")
   public QueryEffect<Entries> all() {
     return queryResult();
   }

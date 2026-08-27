@@ -40,6 +40,23 @@ this port is derived from the source — that is the entire premise of a port �
 claimed as independent invention anywhere; `specs/SPEC-001-open-notebook.md` cites the specific
 file and line range behind every rule.
 
+## The vendored frontend
+
+`frontend/` is a verbatim copy of `lfnovo/open-notebook`'s own `frontend/` directory
+(RENDERING.md R3 — the interface that already exists is the one the port ships). Every
+component, style, route, and static asset is unchanged from the source. Two files were edited,
+both purely at the data layer (RENDERING.md R4):
+
+- `frontend/src/lib/api/sources.ts` — source creation sends a JSON body instead of
+  `multipart/form-data` (this SDK version's HTTP endpoints have no multipart-parsing hook; see
+  the README's "Where it differs").
+- `frontend/src/lib/hooks/use-sources.ts` — `useSourceStatus` subscribes to this port's SSE
+  status stream instead of polling every 2 seconds (RENDERING.md R1).
+
+`frontend/package.json`, every locale file, every component, and the full `src/app` route tree
+are copied unmodified. See `open-notebook-port/specs/RENDER-001-open-notebook.md` for the full
+R1/R3/R5 compliance record.
+
 ## Also used
 
 - Akka

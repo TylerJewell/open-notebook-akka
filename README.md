@@ -237,15 +237,19 @@ mistakes.
   source fails partway through a notebook's cascade, both systems continue with the rest of the
   notebook's sources and notes rather than aborting the whole delete — checked directly rather
   than assumed, since it is the kind of asymmetry a rebuild easily flattens by accident.
-- **The original's own frontend is not yet repointed at this port — the largest gap this pass
-  did not close.** `/ui/notebooks/{id}` is a minimal server-rendered proof page (from the
-  original narrower slice), not the original's Next.js app. The original's API client expects
-  snake_case JSON field names and its own route shapes (`GET /api/notebooks` returning
-  `source_count`/`note_count`, for instance); this port's endpoints return camelCase
-  (`sourceCount`/`noteCount`) at different paths. Reusing the frontend for real — RENDERING.md
-  R3 — means adapting that data layer (`frontend/src/lib/api/`), not rebuilding a UI; it is real,
-  substantial, remaining work, named here rather than left for someone to discover by running
-  the frontend against this port and watching every request fail to parse.
+- **The original's own frontend is vendored and repointed at this port (RENDERING.md R3).**
+  `frontend/` is `lfnovo/open-notebook`'s own Next.js app, unmodified in components, styling,
+  routes and assets. A full snake_case-speaking `/api/*` adapter layer (`Api*Endpoint` classes,
+  alongside the original camelCase bare-path endpoints, which are untouched and still tested)
+  gives it the routes and field names it expects; `frontend/src/lib/api/sources.ts`'s source
+  creation is the one sanctioned data-layer change beyond field renaming — a JSON body instead
+  of `multipart/form-data`, since this SDK version's HTTP endpoints have no multipart-parsing
+  hook and SPEC-001 §1 already excludes raw file upload. `useSourceStatus` subscribes to a real
+  SSE endpoint (`GET /api/sources/{id}/status/stream`, backed by `SourceEntity`'s own
+  `NotificationPublisher`) instead of polling every 2 seconds, satisfying RENDERING.md R1 for
+  the one polling call site SPEC-001's own rules govern. See `specs/RENDER-001-open-notebook.md`
+  in the port folder for the full R1/R3/R5 compliance record, including what was checked and
+  what a probe found only partially reproducible.
 - **A source's sync-processing path is not ported.** The original offers a synchronous
   alternative to its async ingestion path (`async_processing: false`); in this environment that
   path recursed through the original's own request-handling and never completed (see

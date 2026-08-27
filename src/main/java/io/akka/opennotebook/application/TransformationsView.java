@@ -25,7 +25,8 @@ public class TransformationsView extends View {
     }
   }
 
-  @Query("SELECT * AS items FROM transformations ORDER BY name")
+  // No ORDER BY -- see CredentialsView's class doc.
+  @Query("SELECT * AS items FROM transformations")
   public QueryEffect<Entries> all() {
     return queryResult();
   }

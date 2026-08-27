@@ -36,6 +36,18 @@ public record Notebook(
         notebookId, name, description, archived, linked, noteIds, chatSessionIds, createdAt, now, deleted);
   }
 
+  public Notebook withSourceUnlinked(String sourceId, Instant now) {
+    var linked = new java.util.LinkedHashSet<>(sourceIds);
+    linked.remove(sourceId);
+    return new Notebook(
+        notebookId, name, description, archived, linked, noteIds, chatSessionIds, createdAt, now, deleted);
+  }
+
+  public Notebook withUpdated(String name, String description, boolean archived, Instant now) {
+    return new Notebook(
+        notebookId, name, description, archived, sourceIds, noteIds, chatSessionIds, createdAt, now, deleted);
+  }
+
   public Notebook withNoteLinked(String noteId, Instant now) {
     var linked = new java.util.LinkedHashSet<>(noteIds);
     linked.add(noteId);

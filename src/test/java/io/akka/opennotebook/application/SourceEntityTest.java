@@ -3,6 +3,7 @@ package io.akka.opennotebook.application;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import akka.javasdk.testkit.EventSourcedTestKit;
+import akka.javasdk.testkit.TestNotificationPublisher;
 import io.akka.opennotebook.domain.Source;
 import io.akka.opennotebook.domain.SourceStatus;
 import java.time.Instant;
@@ -17,7 +18,7 @@ class SourceEntityTest {
   private static final Instant T1 = Instant.parse("2026-01-01T00:00:05Z");
 
   private static EventSourcedTestKit<Source, SourceEntity.Event, SourceEntity> kit(String id) {
-    return EventSourcedTestKit.of(id, SourceEntity::new);
+    return EventSourcedTestKit.of(id, ctx -> new SourceEntity(new TestNotificationPublisher<>()));
   }
 
   @Test
