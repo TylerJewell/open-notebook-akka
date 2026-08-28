@@ -5,7 +5,11 @@ This project is a port of **[lfnovo/open-notebook](https://github.com/lfnovo/ope
 ## Licence
 
 `lfnovo/open-notebook` is **MIT**, © 2024 Luis Novo (read from its `LICENSE` file, not assumed
-from the README badge). This port is therefore MIT as well; see `LICENSE` in this repository.
+from the README badge). This repository's own code — the clean-room Java, written against a
+specification derived by running the original rather than by translating its source — is
+Apache-2.0, Copyright 2026 Tyler Jewell; see `LICENSE` and `NOTICE`. The vendored `frontend/`
+tree (below) is reused verbatim and stays under the source's own MIT licence, unmodified. See
+`LICENSING.md` for the full split and why the two trees are not under the same terms.
 
 ## What was copied verbatim, and why
 

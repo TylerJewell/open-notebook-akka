@@ -6,20 +6,21 @@ This repository holds two kinds of code and they are not under the same licence.
 
 Everything outside the vendored trees listed below was written for this project. It is a
 clean-room implementation: written against a specification derived by running
-[lfnovo/open-notebook](https://github.com/lfnovo/open-notebook) and recording what it does, not by translating
-its source. See `../open-notebook-port/specs/SPEC-001-open-notebook.md` for the rules it was built to, and `ACKNOWLEDGEMENTS.md` for the
+[lfnovo/open-notebook](https://github.com/lfnovo/open-notebook) and recording what it does, not by translating its
+source. See `../open-notebook-port/specs/SPEC-001-open-notebook.md` for the rules it was built to, and `ACKNOWLEDGEMENTS.md` for the
 places any text was carried across and why.
 
-It is licensed under the Apache License 2.0. See `LICENSE`.
+It is licensed under the Apache License 2.0, Copyright 2026 Tyler Jewell. See `LICENSE`
+and `NOTICE`.
 
 ## The interface — MIT, as lfnovo/open-notebook licensed it
 
 - `frontend/`
 
-That code was written by the lfnovo/open-notebook project and is shipped here **verbatim**, reused
-rather than rebuilt, per this harness's RENDERING.md R3. It remains under the licence its
-authors chose, unmodified, in `LICENSE-open-notebook` and beside the code itself. Nothing
-about this repository relicenses it.
+That code was written by the lfnovo/open-notebook project, Copyright 2024 Luis Novo, and is shipped
+here **verbatim**, reused rather than rebuilt, per this harness's RENDERING.md R3. It
+remains under the licence its authors chose, unmodified, in `LICENSE-open-notebook` and beside
+the code itself. Nothing about this repository relicenses it.
 
 ## Why the split
 
