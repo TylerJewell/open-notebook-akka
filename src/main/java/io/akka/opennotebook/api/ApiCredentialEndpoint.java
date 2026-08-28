@@ -10,6 +10,7 @@ import akka.javasdk.annotations.http.Put;
 import akka.javasdk.client.ComponentClient;
 import akka.javasdk.http.AbstractHttpEndpoint;
 import akka.javasdk.http.HttpResponses;
+import io.akka.opennotebook.ai.AiClient;
 import io.akka.opennotebook.application.CredentialEntity;
 import io.akka.opennotebook.application.CredentialsView;
 import io.akka.opennotebook.domain.Credential;
@@ -24,9 +25,28 @@ import java.util.UUID;
  * {@link CredentialsView} -- R17-R19, snake_case wire shape, plus the list-shaping and discovery
  * routes the bare-path {@code CredentialEndpoint} never needed.
  *
+ * <p><b>{@code test}/{@code discover} make a real call</b> -- {@code GET /v1/models} against the
+ * credential's own configured (or provider-default) base URL, via {@link AiClient#listModels},
+ * the same OpenAI-compatible shape and the same mock-provider test double every other AI call in
+ * this port already goes through. Not implemented: {@code register-models}, which would persist
+ * {@code discover}'s result as {@link io.akka.opennotebook.domain.ModelRecord}s -- {@code
+ * ApiModelEndpoint}'s own {@code POST /models} already does exactly that, one at a time, for any
+ * discovered name.
+ *
+ * <p><b>Checked against the real source, and genuinely different, not a bug (SPEC-001 SS6
+ * D-7):</b> {@code api/credentials_service.py}'s {@code test_credential}/{@code
+ * discover_with_config} special-case dispatch per provider *name* -- a hardcoded per-provider
+ * test model for {@code test} (real success is "the model call didn't 401", not "the model call
+ * succeeded"; a failure can still classify as success), a static model list for several
+ * providers, and {@code discover}'s own base-URL handling that only the {@code
+ * openai_compatible}/{@code anthropic_compatible} *pseudo*-providers honor -- a credential named
+ * {@code openai} with a custom {@code base_url} is queried against the *real* api.openai.com by
+ * {@code discover}, confirmed by driving the real source with a mock provider at a custom
+ * {@code base_url} and getting an empty catalog back. This port's {@code baseUrl} always
+ * determines where a call goes, for every provider name, which is the same one-mechanism
+ * simplification D-7 already applies to every other AI call in this class.
+ *
  * <p><b>Honestly narrowed, not silently faked (SPEC-001 SS6 D-7's own reasoning applied here):</b>
- * {@code discover}/{@code register-models} always return an empty catalog -- this port has no
- * live account for any real provider's model-listing API, so there is no catalog to discover.
  * {@code migrate-from-env}/{@code migrate-from-provider-config} are no-ops: this port has no
  * legacy env-var or {@code provider_config} credential storage to migrate away from (every
  * credential here was always created through {@link CredentialEntity}). {@code env-status}
@@ -55,9 +75,11 @@ public class ApiCredentialEndpoint extends AbstractHttpEndpoint {
   public record MigrateResponse(String message, List<String> migrated, List<String> skipped, List<String> errors) {}
 
   private final ComponentClient componentClient;
+  private final AiClient aiClient;
 
   public ApiCredentialEndpoint(ComponentClient componentClient) {
     this.componentClient = componentClient;
+    this.aiClient = new AiClient(componentClient);
   }
 
   @Get("")
@@ -159,7 +181,12 @@ public class ApiCredentialEndpoint extends AbstractHttpEndpoint {
     if (unauthorized != null) return unauthorized;
     Credential credential = fetch(credentialId);
     if (credential == null) return HttpResponses.notFound("Credential not found");
-    return HttpResponses.ok(new TestResponse(credential.provider(), true, "Credential is configured"));
+    try {
+      aiClient.listModels(credential);
+      return HttpResponses.ok(new TestResponse(credential.provider(), true, "Connection successful"));
+    } catch (Exception e) {
+      return HttpResponses.ok(new TestResponse(credential.provider(), false, e.getMessage()));
+    }
   }
 
   @Post("/{credentialId}/discover")
@@ -168,7 +195,12 @@ public class ApiCredentialEndpoint extends AbstractHttpEndpoint {
     if (unauthorized != null) return unauthorized;
     Credential credential = fetch(credentialId);
     if (credential == null) return HttpResponses.notFound("Credential not found");
-    return HttpResponses.ok(new DiscoverResponse(credentialId, credential.provider(), List.of()));
+    try {
+      List<Object> discovered = List.copyOf(aiClient.listModels(credential));
+      return HttpResponses.ok(new DiscoverResponse(credentialId, credential.provider(), discovered));
+    } catch (Exception e) {
+      return HttpResponses.badRequest(e.getMessage());
+    }
   }
 
   @Post("/migrate-from-provider-config")

@@ -5,9 +5,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 import akka.javasdk.testkit.TestKitSupport;
 import com.sun.net.httpserver.HttpServer;
 import io.akka.opennotebook.domain.ExtractionRequest;
+import io.akka.opennotebook.domain.LocalFileExtraction;
 import io.akka.opennotebook.domain.SourceStatus;
+import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -110,5 +114,52 @@ class SourceIngestionWorkflowIntegrationTest extends TestKitSupport {
               assertThat(source.errorMessage()).isNotBlank();
               assertThat(source.fullText()).isNull();
             });
+  }
+
+  @Test
+  void filePathSourceReadsFromTheUploadsDirectory() throws IOException {
+    Path uploadsRoot = Path.of(LocalFileExtraction.uploadsRoot()).toAbsolutePath().normalize();
+    Files.createDirectories(uploadsRoot);
+    Path file = uploadsRoot.resolve("workflow-test.txt");
+    Files.writeString(file, "Content read from the uploads directory.");
+    try {
+      String sourceId = submit(new ExtractionRequest.FilePath(file.toString()));
+
+      Awaitility.await()
+          .atMost(java.time.Duration.ofSeconds(10))
+          .untilAsserted(
+              () -> {
+                var source =
+                    componentClient.forEventSourcedEntity(sourceId).method(SourceEntity::get).invoke();
+                assertThat(source.status()).isEqualTo(SourceStatus.COMPLETED);
+                assertThat(source.fullText()).isEqualTo("Content read from the uploads directory.");
+                // Checked against the real source: a file source with no caller-supplied title
+                // is titled by its own filename, not left blank.
+                assertThat(source.title()).isEqualTo("workflow-test.txt");
+              });
+    } finally {
+      Files.deleteIfExists(file);
+    }
+  }
+
+  @Test
+  void filePathOutsideUploadsDirectoryFailsPermanently() throws IOException {
+    Path outside = Files.createTempFile("open-notebook-lfi-workflow-", ".txt");
+    Files.writeString(outside, "must not be read");
+    try {
+      String sourceId = submit(new ExtractionRequest.FilePath(outside.toString()));
+
+      Awaitility.await()
+          .atMost(java.time.Duration.ofSeconds(10))
+          .untilAsserted(
+              () -> {
+                var source =
+                    componentClient.forEventSourcedEntity(sourceId).method(SourceEntity::get).invoke();
+                assertThat(source.status()).isEqualTo(SourceStatus.FAILED);
+                assertThat(source.errorMessage()).contains("uploads directory");
+              });
+    } finally {
+      Files.deleteIfExists(outside);
+    }
   }
 }

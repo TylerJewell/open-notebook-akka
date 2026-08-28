@@ -9,6 +9,8 @@ import akka.javasdk.client.ComponentClient;
 import akka.javasdk.workflow.Workflow;
 import io.akka.opennotebook.domain.Extraction;
 import io.akka.opennotebook.domain.ExtractionRequest;
+import io.akka.opennotebook.domain.LocalFileExtraction;
+import io.akka.opennotebook.domain.UrlExtractionEngine;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -26,17 +28,20 @@ public class SourceIngestionWorkflow extends Workflow<SourceIngestionWorkflow.St
   // Flattened rather than carrying ExtractionRequest directly: Akka's own serializer resolves a
   // @TypeName-tagged sealed interface only at the top level of a persisted type (an entity's
   // Event, or a command/state record itself), not for one nested inside another record's field.
-  public record State(String sourceId, String content, String url) {
+  public record State(String sourceId, String content, String url, String filePath) {
     ExtractionRequest request() {
-      return content != null ? new ExtractionRequest.PlainText(content) : new ExtractionRequest.Url(url);
+      if (content != null) return new ExtractionRequest.PlainText(content);
+      if (url != null) return new ExtractionRequest.Url(url);
+      return new ExtractionRequest.FilePath(filePath);
     }
   }
 
-  public record Start(String sourceId, String content, String url) {
+  public record Start(String sourceId, String content, String url, String filePath) {
     public static Start of(String sourceId, ExtractionRequest request) {
       return switch (request) {
-        case ExtractionRequest.PlainText plainText -> new Start(sourceId, plainText.content(), null);
-        case ExtractionRequest.Url u -> new Start(sourceId, null, u.url());
+        case ExtractionRequest.PlainText plainText -> new Start(sourceId, plainText.content(), null, null);
+        case ExtractionRequest.Url u -> new Start(sourceId, null, u.url(), null);
+        case ExtractionRequest.FilePath f -> new Start(sourceId, null, null, f.path());
       };
     }
   }
@@ -54,7 +59,7 @@ public class SourceIngestionWorkflow extends Workflow<SourceIngestionWorkflow.St
 
   public Effect<Done> start(Start command) {
     return effects()
-        .updateState(new State(command.sourceId(), command.content(), command.url()))
+        .updateState(new State(command.sourceId(), command.content(), command.url(), command.filePath()))
         .transitionTo(SourceIngestionWorkflow::extractStep)
         .thenReply(Done.getInstance());
   }
@@ -88,11 +93,28 @@ public class SourceIngestionWorkflow extends Workflow<SourceIngestionWorkflow.St
   private static final HttpClient HTTP_CLIENT =
       HttpClient.newBuilder().connectTimeout(ofSeconds(10)).build();
 
-  /** R6, R7: plain text passes through verbatim; a URL is fetched and reduced to title + text. */
+  /** R6, R7: plain text passes through verbatim; a URL is fetched and reduced to title + text
+   * (via the configured engine, D-1x); a file path is read from the local uploads directory. */
   private Extraction.Outcome runExtraction(ExtractionRequest request) {
     return switch (request) {
       case ExtractionRequest.PlainText plainText -> Extraction.plainText(plainText.content());
-      case ExtractionRequest.Url url -> fetchAndExtract(url.url());
+      case ExtractionRequest.Url url -> extractUrl(url.url());
+      case ExtractionRequest.FilePath filePath -> LocalFileExtraction.extract(filePath.path());
+    };
+  }
+
+  private Extraction.Outcome extractUrl(String url) {
+    String engine =
+        componentClient
+            .forKeyValueEntity(ContentSettingsEntity.ID)
+            .method(ContentSettingsEntity::get)
+            .invoke()
+            .defaultContentProcessingEngineUrl();
+    return switch (engine == null ? "auto" : engine.toLowerCase()) {
+      case "jina" -> UrlExtractionEngine.viaJina(url);
+      case "firecrawl" -> UrlExtractionEngine.viaFirecrawl(url);
+      case "crawl4ai" -> UrlExtractionEngine.viaCrawl4aiRemote(url);
+      default -> fetchAndExtract(url);
     };
   }
 

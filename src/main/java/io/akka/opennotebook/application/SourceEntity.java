@@ -60,7 +60,7 @@ public class SourceEntity extends EventSourcedEntity<Source, SourceEntity.Event>
   public record NotebookUnlinked(String notebookId, Instant at) implements Event {}
 
   @TypeName("source-insight-added")
-  public record InsightAdded(String insightType, String content, Instant at) implements Event {}
+  public record InsightAdded(String insightId, String insightType, String content, Instant at) implements Event {}
 
   @TypeName("source-deleted")
   public record SourceDeleted(Instant at) implements Event {}
@@ -79,6 +79,10 @@ public class SourceEntity extends EventSourcedEntity<Source, SourceEntity.Event>
   public record UpdateTitle(String title, Instant now) {}
 
   public record RemoveInsight(int index, Instant now) {}
+
+  /** {@link io.akka.opennotebook.api.ApiInsightEndpoint}'s global {@code /api/insights/{id}}
+   * routes remove by the insight's own id rather than an index a caller has to look up first. */
+  public record RemoveInsightById(String insightId, Instant now) {}
 
   @Override
   public Source emptyState() {
@@ -146,7 +150,9 @@ public class SourceEntity extends EventSourcedEntity<Source, SourceEntity.Event>
         || command.content().isBlank()) {
       return effects().error("Insight type and content must be provided");
     }
-    var event = new InsightAdded(command.insightType(), command.content(), command.now());
+    var event =
+        new InsightAdded(
+            java.util.UUID.randomUUID().toString(), command.insightType(), command.content(), command.now());
     return effects().persist(event).thenReply(s -> publish(event));
   }
 
@@ -158,6 +164,25 @@ public class SourceEntity extends EventSourcedEntity<Source, SourceEntity.Event>
       return effects().error("No such insight");
     }
     var event = new InsightRemoved(command.index(), command.now());
+    return effects().persist(event).thenReply(s -> publish(event));
+  }
+
+  public Effect<Done> removeInsightById(RemoveInsightById command) {
+    if (!currentState().exists()) {
+      return effects().error("Source not found");
+    }
+    int index = -1;
+    var insights = currentState().insights();
+    for (int i = 0; i < insights.size(); i++) {
+      if (insights.get(i).id().equals(command.insightId())) {
+        index = i;
+        break;
+      }
+    }
+    if (index < 0) {
+      return effects().error("No such insight");
+    }
+    var event = new InsightRemoved(index, command.now());
     return effects().persist(event).thenReply(s -> publish(event));
   }
 
@@ -203,7 +228,8 @@ public class SourceEntity extends EventSourcedEntity<Source, SourceEntity.Event>
       case SourceExtractionFailed e -> currentState().withExtractionFailed(e.errorMessage(), e.at());
       case NotebookLinked e -> currentState().withNotebookLinked(e.notebookId(), e.at());
       case NotebookUnlinked e -> currentState().withNotebookUnlinked(e.notebookId(), e.at());
-      case InsightAdded e -> currentState().withInsightAdded(new Insight(e.insightType(), e.content()), e.at());
+      case InsightAdded e ->
+          currentState().withInsightAdded(new Insight(e.insightId(), e.insightType(), e.content()), e.at());
       case TitleUpdated e -> currentState().withTitle(e.title(), e.at());
       case InsightRemoved e -> currentState().withInsightRemoved(e.index(), e.at());
       case SourceDeleted e -> currentState().withDeleted(e.at());

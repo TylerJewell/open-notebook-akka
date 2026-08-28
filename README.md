@@ -9,8 +9,13 @@ holds.
 A port of [lfnovo/open-notebook](https://github.com/lfnovo/open-notebook) onto **Akka**, built
 with **Akka Specify**. This is a complete port, not a slice of one capability: every capability
 the original has, this port has, less native mobile apps and third-party chat-platform
-integrations (the original has neither) and the heavy, gigabyte-scale extraction engines
-(Docling, Crawl4AI, Firecrawl, Jina) this environment cannot provision — see
+integrations — the original has neither. AI provider connectivity (including a real Anthropic
+translation, not just OpenAI-compatible ones), every URL-extraction engine that is a plain HTTP
+call underneath, and file-based sources are all implemented for real; a narrower, precisely
+named remainder — DOCX/PPTX/XLSX (a Java parser library this build environment's Maven cannot
+resolve), OCR/scanned-PDF extraction and local browser-automation crawling (ML/browser runtimes
+this port does not embed), and audio/video transcription (the same) — is checked and named
+rather than assumed. See
 [`specs/SPEC-001-open-notebook.md`](../open-notebook-port/specs/SPEC-001-open-notebook.md) §1
 for the exact boundary and why.
 
@@ -31,15 +36,18 @@ The specifications the port was generated from are in
 
 ## lfnovo/open-notebook → this port
 
-📁 367 source files, 63,053 lines (whole project, `frontend/node_modules` excluded as
-vendored) → **75 Java files, 5,813 production lines** (22 files, 1,657 lines of tests,
-reported apart)<br>
+📁 318 source files, 54,067 lines (`open_notebook/`, `api/`, `commands/`, `frontend/src`,
+`frontend/public`; `node_modules` and the `.next` build output excluded as generated) →
+**81 Java files, 6,511 production lines** (30 files, 2,381 lines of tests, reported apart)<br>
 ⚡ 0.676 seconds → **0.130 seconds**, submitting a text source and waiting for it to settle (5.2× faster)<br>
 🎯 46 of 47 same-answer checks agree, across sixteen workloads run against both systems live —
 the four original source-ingestion workloads plus the twelve SPEC-001 §6–§12 added (auth,
 credentials, models, transformations, chat, ask, search, podcasts, settings); the one
 disagreement is a mock-provider fidelity boundary, not a behavioral difference — see
-[`bench/REPORT.md`](../open-notebook-port/bench/REPORT.md) §1b<br>
+[`bench/REPORT.md`](../open-notebook-port/bench/REPORT.md) §1b. A later pass's file-source,
+insight, and credential-discovery additions were spot-checked live against the running
+original rather than folded into these sixteen formal workloads yet — see `bench/REPORT.md`
+§5 for exactly what that pass checked and found, including one real bug it fixed.<br>
 🖥️ 4 processes (API, worker, SurrealDB, frontend) → **1 process**
 
 Full method and the numbers that did *not* make this list:
@@ -54,15 +62,24 @@ complete port (SPEC-001 §6–§12), then a pass that closed the RENDERING.md R3
 vendored, repointed frontend), then a pass that re-ran step e's same-answers-first and size
 measurements against the complete-port build rather than the slice they had described since
 the expansion, then a pass that independently re-verified every mechanical gate and closed a
-`.vendored`/`copied_strings.py` disclosure gap the frontend vendoring had left open, then this
-pass, which renamed the one JUnit test class whose name fell outside Surefire's default
-include pattern so the ordinary `mvn test` lifecycle actually runs it
-(`bench/REPORT.md`).
+`.vendored`/`copied_strings.py` disclosure gap the frontend vendoring had left open, then a
+pass that renamed the one JUnit test class whose name fell outside Surefire's default include
+pattern so the ordinary `mvn test` lifecycle actually runs it, then this pass, which closed
+three real gaps SPEC-001 §1 had previously folded into "out of scope" without checking them by
+running anything (multipart's absence confirmed by decompiling the SDK jar rather than
+assumed; file-based sources, three real URL-extraction engines, a native Anthropic protocol,
+and real credential connectivity checks implemented in their place), fixed one real bug this
+pass's own live comparison against the original found (a file source's title defaulting to its
+own filename, not staying blank), and added the global insight-id, `sources/json`,
+`sources/{id}/download`, and `search/ask/simple` routes SPEC-001's own conformance table had
+not yet covered (`bench/REPORT.md`).
 
-⏱️ **109.8 hours** wall-clock across every session so far, **5.2** of them active<br>
-✍️ **2,013,926** tokens written by the model across every session so far<br>
+⏱️ **109.8 hours** wall-clock across every session `toolkit/tokens.py` has indexed so far,
+**5.3** of them active — this pass's own session is still open and is not yet in that
+figure; refresh it again once `toolkit/tokens.py --port open-notebook` can see it<br>
+✍️ **2,018,909** tokens written by the model across every indexed session so far<br>
 🙋 **0** questions to a human<br>
-🧪 **65** backend tests (46 unit + 19 integration), **140** frontend tests (23 files, unmodified
+🧪 **93** backend tests (59 unit + 34 integration), **140** frontend tests (23 files, unmodified
 by this port beyond the two files RENDERING.md R4 sanctioned changing)
 
 ```bash
@@ -83,10 +100,18 @@ From the specification:
   can already see, even if extraction later fails.
 - **A caller-supplied title survives extraction; a placeholder title does not.** Submit a
   source with your own title and it stays exactly as written. Leave it blank and, once
-  extraction produces one (a fetched page's own title), that becomes the source's title.
+  extraction produces one (a fetched page's own title, or a file source's own filename), that
+  becomes the source's title.
 - **A failed extraction changes only the source's status and error message.** The title, the
   extracted text, and which notebooks the source belongs to are exactly what they were before
   the attempt — nothing is deleted, nothing is guessed at.
+- **A source can also be a file already placed inside the server's own uploads directory**, with
+  the same location guard the original enforces; its text (plain, or a PDF's own text layer) is
+  read and titled by its own filename when nothing else supplies one, checked against the real
+  original rather than assumed.
+- **A URL is fetched through whichever extraction engine is configured** — a plain fetch, or a
+  real call to Jina Reader, Firecrawl, or a self-hosted Crawl4AI server, the three of the
+  original's four alternatives that are a plain HTTP call underneath.
 - **Deleting a notebook always deletes every note it holds, and classifies each source as
   exclusive or shared by which notebooks it is linked to right now.** An exclusive source can be
   deleted along with the notebook; a shared one is only unlinked, and survives in whatever other
@@ -159,7 +184,7 @@ Restart Claude Code when it asks.
 > Then run /akka:setup to install everything this project needs, and /akka:build to
 > compile it, run the tests, and start it locally.
 
-**3. Open** http://localhost:9072/ui/notebooks/{a notebook id you created}.
+**3. Open** http://localhost:9155/ui/notebooks/{a notebook id you created}.
 
 ---
 
@@ -178,18 +203,18 @@ mvn compile
 akka local run
 ```
 
-The service starts on **port 9072**.
+The service starts on **port 9155**.
 
 ### Try it
 
 ```bash
-NB=$(curl -s -X POST localhost:9072/notebooks -H 'content-type: application/json' \
+NB=$(curl -s -X POST localhost:9155/notebooks -H 'content-type: application/json' \
   -d '{"name":"My Notebook","description":"a notebook"}' | jq -r .notebookId)
 
-curl -s -X POST localhost:9072/sources -H 'content-type: application/json' \
+curl -s -X POST localhost:9155/sources -H 'content-type: application/json' \
   -d "{\"type\":\"text\",\"content\":\"The quick brown fox.\",\"notebooks\":[\"$NB\"]}"
 
-curl -s localhost:9072/notebooks/$NB/delete-preview
+curl -s localhost:9155/notebooks/$NB/delete-preview
 ```
 
 ---
@@ -198,7 +223,7 @@ curl -s localhost:9072/notebooks/$NB/delete-preview
 
 | Variable | Default | Notes |
 |---|---|---|
-| `akka.javasdk.dev-mode.http-port` | `9072` | set in `src/main/resources/application.conf` |
+| `akka.javasdk.dev-mode.http-port` | `9155` | set in `src/main/resources/application.conf` |
 | `OPEN_NOTEBOOK_ENCRYPTION_KEY` | *(required)* | any string; a credential's API key cannot be stored without it |
 | `OPEN_NOTEBOOK_PASSWORD` | unset (auth disabled) | set it to require `Authorization: Bearer <password>` on every endpoint |
 
@@ -215,16 +240,33 @@ provider's `baseUrl` and API key, then a `ModelRecord` linked to it (`POST /cred
 Everything not listed here behaves the same way on purpose, including the parts that look like
 mistakes.
 
-- **Extraction is fetch-and-strip only.** The original chooses among several extraction engines
-  (Docling for OCR and formulas, Crawl4AI, Firecrawl, Jina) with a plain HTTP fetch as its
-  fallback. This port implements only the fallback path — a URL is fetched and reduced to its
-  page title and visible text, and a submitted document arrives as plain text already. No
-  engine choice is exposed, because none of the others is provisionable in this environment
-  (SPEC-001 §1).
-- **Every AI provider is called as one OpenAI-compatible HTTP shape, not through 18+ SDKs.** The
-  original normalizes providers through Esperanto's `AIFactory`; this port normalizes them one
-  level lower, at the HTTP request/response shape, via `Credential.baseUrl` — the same mechanism
-  the original already uses for Ollama and LM Studio. See SPEC-001 §6 D-7.
+- **Three of the original's four alternative URL-extraction engines are real; the fourth's local
+  mode is not, and Docling's OCR/vision path is not.** Jina Reader, Firecrawl, and a
+  remote/self-hosted Crawl4AI server are each a real HTTP call (`UrlExtractionEngine`), selected
+  the same way the original selects them. Crawl4AI's own local mode is browser automation (a
+  bundled Chromium) with no remote counterpart when unconfigured, and Docling's OCR/vision/table
+  models have no remote mode in the original at all — both are an ML/browser runtime this port
+  does not embed, reported as exactly that when selected rather than silently downgraded to the
+  plain fetch. See SPEC-001 §1.
+- **DOCX/PPTX/XLSX file sources are not readable; plain text and a PDF's own text layer are.**
+  Apache POI would read them; this build environment's Maven cannot resolve it (confirmed by
+  actually running `mvn dependency:get` for it, which timed out with no artifact retrieved).
+  Rejected by name at ingestion time rather than silently mis-read as text. See SPEC-001 §1.
+- **Every AI provider is called as one OpenAI-compatible HTTP shape, except Anthropic, which is
+  translated to its own native Messages API.** The original normalizes 22 providers through
+  Esperanto's `AIFactory`; this port normalizes most of them one level lower, at the HTTP
+  request/response shape, via `Credential.baseUrl` — the same mechanism the original already
+  uses for Ollama and LM Studio — and translates Anthropic's genuinely different wire protocol
+  directly, proving the design extends past the default shape rather than being hard-walled to
+  it. See SPEC-001 §6 D-7.
+- **A credential's `test`/`discover` always call the credential's own configured base URL; the
+  original special-cases them per provider name.** The original hardcodes a test model per
+  provider for `test` (a failed call can still classify as success) and only its
+  `openai_compatible`/`anthropic_compatible` pseudo-providers honor a custom base URL for
+  `discover` — a credential named `openai` with a custom base URL is discovered against the
+  real api.openai.com there. This port's `baseUrl` always determines where a call goes, for
+  every provider name, checked by driving the real original with a mock provider at a custom
+  `base_url` and getting an empty catalog back where this port would not. See SPEC-001 §6 D-7.
 - **Search ranks with a linear cosine scan over every stored chunk, not an index.** The original
   uses SurrealDB's indexed `vector_search`/`text_search`. Correct at this port's data volumes,
   not at the original's indexed scale. See SPEC-001 §9 D-9.
@@ -254,7 +296,10 @@ mistakes.
   gives it the routes and field names it expects; `frontend/src/lib/api/sources.ts`'s source
   creation is the one sanctioned data-layer change beyond field renaming — a JSON body instead
   of `multipart/form-data`, since this SDK version's HTTP endpoints have no multipart-parsing
-  hook and SPEC-001 §1 already excludes raw file upload. `useSourceStatus` subscribes to a real
+  hook, confirmed by decompiling the SDK jar rather than assumed (SPEC-001 §1). A file already
+  placed inside the uploads directory — the original's own `file_path` field, real here too —
+  still works from the browser; only a freshly-picked local file, which needs the raw multipart
+  body, does not. `useSourceStatus` subscribes to a real
   SSE endpoint (`GET /api/sources/{id}/status/stream`, backed by `SourceEntity`'s own
   `NotificationPublisher`) instead of polling every 2 seconds, satisfying RENDERING.md R1 for
   the one polling call site SPEC-001's own rules govern. See `specs/RENDER-001-open-notebook.md`

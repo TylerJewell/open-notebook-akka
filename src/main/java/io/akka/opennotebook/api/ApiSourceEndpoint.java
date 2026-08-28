@@ -32,23 +32,34 @@ import java.util.UUID;
  * R15 rules as the bare-path {@code SourceEndpoint}, snake_case wire shape, plus the list,
  * status-stream, retry and insight routes the bare-path surface never needed.
  *
- * <p><b>Narrowed, and declared rather than silently dropped:</b> {@code sourcesApi.create} and
- * {@code .upload} in the source send {@code multipart/form-data} (see {@code port-log/sessions/
- * inv2.md}'s FormData inventory); this endpoint accepts JSON only, matching every bare-path
- * endpoint in this project (Akka's {@code AbstractHttpEndpoint} binds a JSON body via Jackson and
- * has no multipart-parsing hook -- confirmed by reading its javadoc and every existing endpoint
- * in this codebase). SPEC-001 SS1 already excludes the original's raw file-upload HTTP surface for
- * the same structural reason. The vendored frontend's {@code sources.ts} is repointed to send a
- * JSON body instead (a data-layer change RENDERING.md R4 sanctions: "the calls, the transport,
- * the shapes they exchange"); the {@code file} field itself has nothing to bind to on either side
- * and is dropped client-side rather than silently failing server-side.
+ * <p><b>Narrowed, and verified rather than assumed:</b> {@code sourcesApi.create} and {@code
+ * .upload} in the source send {@code multipart/form-data}; this endpoint accepts JSON only.
+ * Confirmed by decompiling {@code akka-javasdk-3.6.3.jar}'s own {@code RequestContext} and
+ * {@code impl/http} classes rather than assuming from a doc read (PIPELINE.md's own warning about
+ * that shortcut) -- no multipart type exists in the SDK at all, and {@code RequestContext} exposes
+ * headers and query params only, never the raw request entity a hand-rolled multipart parser
+ * would need. What is real underneath the original's own multipart route, though, is a
+ * <i>second</i> way in: {@code source_data.file_path}, the original's own "backward
+ * compatibility" field for a file already placed inside its uploads directory, needing no
+ * multipart parsing on either side. {@code type=file} with a JSON {@code file_path} is
+ * implemented for real here (see {@link io.akka.opennotebook.domain.LocalFileExtraction}); only
+ * the raw-bytes transport itself is unavailable. The vendored frontend's {@code sources.ts} is
+ * repointed to send a JSON body instead (a data-layer change RENDERING.md R4 sanctions); a file
+ * picked in the browser has nothing to bind to on either side and is dropped client-side rather
+ * than silently failing server-side.
  */
 @HttpEndpoint("/api/sources")
 @Acl(allow = @Acl.Matcher(principal = Acl.Principal.ALL))
 public class ApiSourceEndpoint extends AbstractHttpEndpoint {
 
   public record CreateRequest(
-      String type, String content, String url, String title, List<String> notebooks, String notebook_id) {}
+      String type,
+      String content,
+      String url,
+      String file_path,
+      String title,
+      List<String> notebooks,
+      String notebook_id) {}
 
   public record UpdateRequest(String title) {}
 
@@ -131,6 +142,7 @@ public class ApiSourceEndpoint extends AbstractHttpEndpoint {
 
     ExtractionRequest extractionRequest;
     String url = null;
+    String filePath = null;
     if ("text".equals(request.type())) {
       if (request.content() == null || request.content().isBlank()) {
         return HttpResponses.badRequest("Content is required for text type");
@@ -142,15 +154,25 @@ public class ApiSourceEndpoint extends AbstractHttpEndpoint {
       }
       url = request.url();
       extractionRequest = new ExtractionRequest.Url(request.url());
+    } else if ("file".equals(request.type()) || "upload".equals(request.type())) {
+      // The multipart body itself has nothing to bind to (see class doc); a file_path already
+      // placed inside the uploads directory is the original's own "backward compatibility" mode
+      // and needs no multipart parsing at all -- LocalFileExtraction enforces the same
+      // within-uploads-directory guard the original's router does.
+      if (request.file_path() == null || request.file_path().isBlank()) {
+        return HttpResponses.badRequest("File upload or file_path is required for upload type");
+      }
+      filePath = request.file_path();
+      extractionRequest = new ExtractionRequest.FilePath(filePath);
     } else {
-      return HttpResponses.badRequest("Invalid source type. Must be link or text (file upload is not supported -- see class doc)");
+      return HttpResponses.badRequest("Invalid source type. Must be link, text, or file");
     }
 
     String sourceId = UUID.randomUUID().toString();
     componentClient
         .forEventSourcedEntity(sourceId)
         .method(SourceEntity::createPlaceholder)
-        .invoke(new SourceEntity.CreatePlaceholder(request.title(), url, null, notebooks, Instant.now()));
+        .invoke(new SourceEntity.CreatePlaceholder(request.title(), url, filePath, notebooks, Instant.now()));
     for (String notebookId : notebooks) {
       componentClient
           .forEventSourcedEntity(notebookId)
@@ -162,6 +184,45 @@ public class ApiSourceEndpoint extends AbstractHttpEndpoint {
         .method(SourceIngestionWorkflow::start)
         .invoke(SourceIngestionWorkflow.Start.of(sourceId, extractionRequest));
     return HttpResponses.created(toDetailApi(fetch(sourceId)), "/api/sources/" + sourceId);
+  }
+
+  /** {@code api/routers/sources.py}'s own doc calls this "legacy... for backward compatibility" --
+   * a JSON-body alias for {@link #create}, which is already JSON-only end to end here. */
+  @Post("/json")
+  public HttpResponse createJson(CreateRequest request) {
+    return create(request);
+  }
+
+  /** The original's {@code GET /sources/{id}/download}: the raw bytes of a {@code file}-type
+   * source's own file, read from the same uploads directory {@link
+   * io.akka.opennotebook.domain.LocalFileExtraction} enforces on ingestion. Not implemented:
+   * the original's {@code HEAD} variant -- this SDK version has no {@code @Head} route-binding
+   * annotation to declare it with (confirmed against {@code akka-javasdk-3.6.3.jar}'s {@code
+   * annotations.http} package, which declares Get/Post/Put/Patch/Delete/WebSocket only). */
+  @Get("/{sourceId}/download")
+  public HttpResponse download(String sourceId) {
+    var unauthorized = AuthGuard.check(requestContext());
+    if (unauthorized != null) return unauthorized;
+    Source source = fetch(sourceId);
+    if (source == null) return HttpResponses.notFound("Source not found");
+    if (source.filePath() == null || source.filePath().isBlank()) {
+      return HttpResponses.notFound("Source has no file to download");
+    }
+    java.nio.file.Path uploadsRoot =
+        java.nio.file.Path.of(io.akka.opennotebook.domain.LocalFileExtraction.uploadsRoot()).toAbsolutePath().normalize();
+    java.nio.file.Path resolved = java.nio.file.Path.of(source.filePath()).toAbsolutePath().normalize();
+    if (!resolved.startsWith(uploadsRoot)) {
+      return HttpResponses.of(akka.http.javadsl.model.StatusCodes.FORBIDDEN, akka.http.javadsl.model.ContentTypes.TEXT_PLAIN_UTF8, "Access to file denied".getBytes());
+    }
+    if (!java.nio.file.Files.isRegularFile(resolved)) {
+      return HttpResponses.notFound("File not found on server");
+    }
+    try {
+      byte[] bytes = java.nio.file.Files.readAllBytes(resolved);
+      return HttpResponses.of(akka.http.javadsl.model.StatusCodes.OK, akka.http.javadsl.model.ContentTypes.APPLICATION_OCTET_STREAM, bytes);
+    } catch (java.io.IOException e) {
+      return HttpResponses.internalServerError("Failed to download source file");
+    }
   }
 
   @Put("/{sourceId}")
@@ -260,10 +321,7 @@ public class ApiSourceEndpoint extends AbstractHttpEndpoint {
     if (unauthorized != null) return unauthorized;
     Source source = fetch(sourceId);
     if (source == null) return HttpResponses.notFound("Source not found");
-    return HttpResponses.ok(
-        java.util.stream.IntStream.range(0, source.insights().size())
-            .mapToObj(i -> toInsightApi(sourceId, i, source.insights().get(i)))
-            .toList());
+    return HttpResponses.ok(source.insights().stream().map(insight -> toInsightApi(sourceId, insight)).toList());
   }
 
   /**
@@ -347,7 +405,9 @@ public class ApiSourceEndpoint extends AbstractHttpEndpoint {
         s.createdAt(), s.updatedAt(), s.status().name().toLowerCase(), s.fullText(), List.copyOf(s.notebookIds()));
   }
 
-  private InsightResponse toInsightApi(String sourceId, int index, Insight insight) {
-    return new InsightResponse(sourceId + ":" + index, insight.insightType(), insight.content());
+  private InsightResponse toInsightApi(String sourceId, Insight insight) {
+    // The composite id, not the index: two callers deleting different insights out of order
+    // would otherwise each address the other's insight once the list shifts underneath them.
+    return new InsightResponse(sourceId + ":" + insight.id(), insight.insightType(), insight.content());
   }
 }

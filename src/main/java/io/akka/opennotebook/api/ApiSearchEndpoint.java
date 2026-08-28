@@ -50,6 +50,8 @@ public class ApiSearchEndpoint extends AbstractHttpEndpoint {
 
   public record AskEvent(String type, String content, String final_answer, String message) {}
 
+  public record AskResponse(String answer, String question) {}
+
   public record EmbedRequest(String item_id, String item_type, boolean async_processing) {}
 
   public record EmbedResponse(String success, String message, int chunks_created) {}
@@ -122,6 +124,27 @@ public class ApiSearchEndpoint extends AbstractHttpEndpoint {
         akka.stream.javadsl.Source.from(
             List.of(new AskEvent("answer", answer, null, null), new AskEvent("complete", null, answer, "done")));
     return HttpResponses.serverSentEvents(events);
+  }
+
+  /** The original's non-streaming twin of {@link #ask}: {@code POST /search/ask/simple}, one
+   * JSON {@code AskResponse} instead of an SSE event stream. */
+  @Post("/search/ask/simple")
+  public HttpResponse askSimple(AskRequest request) {
+    var unauthorized = AuthGuard.check(requestContext());
+    if (unauthorized != null) return unauthorized;
+    String question = request.question();
+    String modelId = firstNonBlank(request.final_answer_model(), request.answer_model(), request.strategy_model());
+    if (modelId == null) modelId = defaultChatModel();
+
+    try {
+      String answer =
+          aiClient.chatComplete(
+              modelId, "Answer the user's question as helpfully as possible.",
+              List.of(new AiClient.ChatMessage("user", question)));
+      return HttpResponses.ok(new AskResponse(answer, question));
+    } catch (Exception e) {
+      return HttpResponses.badRequest(e.getMessage());
+    }
   }
 
   @Post("/embed")

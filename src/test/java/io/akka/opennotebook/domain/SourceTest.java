@@ -99,7 +99,7 @@ class SourceTest {
   void deletingSourceClearsInsights() {
     var source =
         Source.createPlaceholder("s1", null, null, null, Set.of("nb1"), T0)
-            .withInsightAdded(new Insight("summary", "content"), T1);
+            .withInsightAdded(new Insight("i1", "summary", "content"), T1);
     assertThat(source.insights()).hasSize(1);
 
     var deleted = source.withDeleted(T1);

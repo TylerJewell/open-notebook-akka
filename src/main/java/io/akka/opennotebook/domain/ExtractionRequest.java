@@ -13,4 +13,9 @@ public sealed interface ExtractionRequest {
   record PlainText(String content) implements ExtractionRequest {}
 
   record Url(String url) implements ExtractionRequest {}
+
+  /** A path the caller supplies directly rather than an uploaded multipart body -- the
+   * source's own "backward compatibility" mode for a file already placed inside its uploads
+   * directory (see {@link io.akka.opennotebook.domain.LocalFileExtraction}). */
+  record FilePath(String path) implements ExtractionRequest {}
 }

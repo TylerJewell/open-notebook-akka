@@ -11,6 +11,25 @@
     <version>1.0-SNAPSHOT</version>
     <packaging>jar</packaging>
     <name>open-notebook-akka</name>
+    <dependencies>
+        <!-- Local-file source ingestion's PDF text-layer extraction (SPEC-001 SS1/SS3), mirroring
+             content-core's own non-Docling pdfplumber fallback for the text layer a PDF already
+             carries. Scanned/image-only PDFs, tables, and formulas (the parts Docling's OCR and
+             vision models exist for) are the named, narrower gap; see LocalFileExtraction. -->
+        <dependency>
+            <groupId>org.apache.pdfbox</groupId>
+            <artifactId>pdfbox</artifactId>
+            <version>3.0.3</version>
+            <exclusions>
+                <!-- Runtime already provides commons-logging 1.2; PDFBox pulls a newer one that
+                     the Akka runtime's dependency-conflict enforcer rejects. -->
+                <exclusion>
+                    <groupId>commons-logging</groupId>
+                    <artifactId>commons-logging</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+    </dependencies>
     <build>
         <plugins>
             <!-- OPEN_NOTEBOOK_ENCRYPTION_KEY is a required deployment env var (see README),
@@ -23,6 +42,10 @@
                 <configuration>
                     <environmentVariables>
                         <OPEN_NOTEBOOK_ENCRYPTION_KEY>test-only-passphrase</OPEN_NOTEBOOK_ENCRYPTION_KEY>
+                        <!-- UrlExtractionEngineTest starts its own fixed-port loopback HTTP servers here,
+                             the same fixed-port-mock pattern as bench/probes/mock_provider.py:26510. -->
+                        <FIRECRAWL_API_URL>http://127.0.0.1:26520</FIRECRAWL_API_URL>
+                        <CRAWL4AI_API_URL>http://127.0.0.1:26521</CRAWL4AI_API_URL>
                     </environmentVariables>
                 </configuration>
             </plugin>
@@ -32,6 +55,10 @@
                 <configuration>
                     <environmentVariables>
                         <OPEN_NOTEBOOK_ENCRYPTION_KEY>test-only-passphrase</OPEN_NOTEBOOK_ENCRYPTION_KEY>
+                        <!-- UrlExtractionEngineTest starts its own fixed-port loopback HTTP servers here,
+                             the same fixed-port-mock pattern as bench/probes/mock_provider.py:26510. -->
+                        <FIRECRAWL_API_URL>http://127.0.0.1:26520</FIRECRAWL_API_URL>
+                        <CRAWL4AI_API_URL>http://127.0.0.1:26521</CRAWL4AI_API_URL>
                     </environmentVariables>
                 </configuration>
             </plugin>

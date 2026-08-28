@@ -51,4 +51,9 @@ public record PodcastEpisode(
     return new PodcastEpisode(
         id, notebookId, episodeProfileId, name, PodcastStatus.FAILED, briefing, outline, transcript, audioBase64, errorMessage, createdAt, exists);
   }
+
+  public PodcastEpisode deleted() {
+    return new PodcastEpisode(
+        id, notebookId, episodeProfileId, name, status, briefing, outline, transcript, audioBase64, errorMessage, createdAt, false);
+  }
 }

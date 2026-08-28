@@ -94,6 +94,57 @@ whole system (every capability now has its own endpoint, entity, and error strin
   `"url-source"`, `"all_seconds"`, `"recently viewed"`) — shared with the source's own test
   suite or benchmark by coincidence of being ordinary placeholder text, not lifted from it.
 
+**Added by the pass that closed three real "out of scope" gaps** (`python
+toolkit/copied_strings.py open-notebook` re-run: 485 literals, 162 also in the source, 42 not
+yet named at the time of that run):
+
+- **New `/api/...` routes, the same identical-surface reason as the list above**:
+  `/api/insights`, `/api/insights/`, `/api/podcasts/episodes`, `/api/podcasts/episodes/`,
+  `/api/podcasts/generate`, `/api/speaker-profiles`, `/api/episode-profiles`,
+  `/save-as-note`, `/search/ask/simple`.
+- **More validation and error messages, copied on purpose, same reason as the first list**:
+  from `api/routers/sources.py`:
+  `"File upload or file_path is required for upload type"`,
+  `"Invalid file path: must be within the uploads directory"`,
+  `"Source has no file to download"`,
+  `"File not found on server"`,
+  `"Failed to download source file"`,
+  `"Access to file denied"`.
+  From `api/routers/podcasts.py`: `"Episode has no audio file"`. From
+  `api/routers/insights.py`: `"Insight not found"`. From `api/credentials_service.py`'s
+  `test_credential`: `"Connection successful"`.
+- **`CRAWL4AI_API_URL`, `FIRECRAWL_API_KEY`, `FIRECRAWL_API_URL`, `JINA_API_KEY`, copied
+  exactly**, the same reason as `OPEN_NOTEBOOK_ENCRYPTION_KEY` above — these are the
+  environment variable names `content_core` (the source's own extraction dependency) itself
+  reads, and `UrlExtractionEngine` has to use the same names to be a drop-in alternative
+  configuration path for the same engines.
+- **`"File not found at "`, copied exactly**, from `content_core`'s own
+  `processors/document/pdf.py` and `processors/text.py` (`raise FileNotFoundError(f"File not
+  found at {file_path}")`) — the source's own extraction dependency's message for the same
+  condition `LocalFileExtraction` reports.
+- **`"Firecrawl: "`, not copied** — a prefix this port's own `UrlExtractionEngine` writes in
+  front of Firecrawl's own `error` field when relaying a failure; the source's `content_core`
+  dependency logs Firecrawl failures with its own, differently-worded message.
+- **`audio/mpeg`, HTTP's own MIME type for the format both systems serve podcast audio as**,
+  not copied text — the same bucket as `Authorization`/`Content-Type` above.
+- **`not attempted`, `must not be read`, `should never be read`, `Unreachable`,
+  `sk-ant-test`, `Invalid URL`, `transcription`, ordinary English or this port's own test
+  fixture data**, matched by
+  `copied_strings.py` against `open-notebook`'s docs, changelog, or vendored frontend locale
+  files rather than its application code — none of these appear in `api/` or
+  `open_notebook/`'s own Python.
+- **`/v1/models`, `/v1/messages`, `/v1/scrape`, `anthropic-version`, `max_tokens`,
+  `raw_markdown`, copied exactly.** Not the source's invention: `/v1/models` is the
+  OpenAI-compatible models-listing path (same bucket as `/v1/chat/completions` above);
+  `/v1/messages`, `anthropic-version`, and `max_tokens` are Anthropic's own Messages API;
+  `/v1/scrape` is Firecrawl's own API; `raw_markdown` is a field name in Crawl4AI's own JSON
+  response shape. Both this port and the source reach these because both call the same
+  third-party APIs, not because one copied the other.
+- **`"legacy endpoint for backward compatibility"`, quoted deliberately**, in
+  `ApiSourceEndpoint.createJson`'s own javadoc, attributing `api/routers/sources.py`'s own
+  docstring for `create_source_json` rather than restating the reasoning as if it were this
+  port's own — the quotation marks are in the source code, not hidden.
+
 No prompt, fixture file, schema definition, or test corpus was copied. The behaviour throughout
 this port is derived from the source — that is the entire premise of a port — and is not
 claimed as independent invention anywhere; `specs/SPEC-001-open-notebook.md` cites the specific

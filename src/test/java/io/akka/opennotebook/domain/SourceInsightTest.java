@@ -11,7 +11,7 @@ class SourceInsightTest {
 
   @Test
   void saveAsNoteProducesAiNoteWithComposedTitle() {
-    var insight = new Insight("Summary", "The quick brown fox.");
+    var insight = new Insight("i1", "Summary", "The quick brown fox.");
     var note = Note.fromInsight("n1", "fox source", insight, "nb1", T0);
 
     assertThat(note.noteType()).isEqualTo(NoteType.AI);

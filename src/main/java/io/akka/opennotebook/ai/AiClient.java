@@ -23,17 +23,21 @@ import java.util.Map;
  * the port's equivalent of the source's {@code provision_langchain_model} /
  * {@code ModelManager.get_model}, collapsed to a single HTTP shape.
  *
- * <p><b>Divergence, recorded as an assumed decision (see port-log):</b> the source normalizes 18+
- * provider SDKs behind Esperanto's {@code AIFactory}. This port normalizes them one level lower —
- * as a single OpenAI-compatible HTTP client (Bearer auth, {@code /v1/chat/completions},
+ * <p><b>Divergence, recorded as an assumed decision (see port-log):</b> the source normalizes 22
+ * provider SDKs behind Esperanto's {@code AIFactory}. This port normalizes most of them one level
+ * lower — as a single OpenAI-compatible HTTP client (Bearer auth, {@code /v1/chat/completions},
  * {@code /v1/embeddings}, {@code /v1/audio/speech}) — the same shape Ollama, LM Studio, OpenRouter,
- * Groq, DeepSeek, Together, and this port's own test double ({@code probes/mock_provider.py})
- * already speak, and the shape a {@link Credential#baseUrl()} override selects exactly the way
- * the source's own {@code base_url} field does for self-hosted providers. Providers whose native
- * protocol is not OpenAI-compatible (Anthropic's Messages API, Vertex, Bedrock) are reachable only
- * through a compatibility endpoint the caller configures via {@code baseUrl}, not through a
- * bespoke per-SDK integration — this is a narrower rebuild of the provider-abstraction *capability*
- * (one HTTP shape, not eighteen SDKs), not an excluded capability.
+ * Groq, DeepSeek, Together, xAI, Alibaba's DashScope (compatible mode), Novita, PPQ, and this
+ * port's own test double ({@code probes/mock_provider.py}) already speak, and the shape a {@link
+ * Credential#baseUrl()} override selects exactly the way the source's own {@code base_url} field
+ * does for self-hosted providers. Anthropic's own Messages API — genuinely not OpenAI-compatible —
+ * is translated directly (see {@code anthropicChatComplete}), proving the design extends past the
+ * default shape rather than being hard-walled to it. The providers with neither an
+ * OpenAI-compatible endpoint nor a translation written here (Google's native Gemini API, Vertex,
+ * Cohere, Voyage, ElevenLabs, Deepgram, Azure's key-header variant) are reachable only through a
+ * compatibility endpoint the caller configures via {@code baseUrl} — a narrower rebuild of the
+ * provider-abstraction *capability* (one HTTP shape plus one native translation, not
+ * twenty-two SDKs), not an excluded capability.
  */
 public class AiClient {
 
@@ -42,13 +46,20 @@ public class AiClient {
       java.net.http.HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
 
   private static final Map<String, String> DEFAULT_BASE_URL =
-      Map.of(
-          "openai", "https://api.openai.com",
-          "groq", "https://api.groq.com/openai",
-          "deepseek", "https://api.deepseek.com",
-          "together", "https://api.together.xyz",
-          "openrouter", "https://openrouter.ai/api",
-          "mistral", "https://api.mistral.ai");
+      Map.ofEntries(
+          Map.entry("openai", "https://api.openai.com"),
+          Map.entry("groq", "https://api.groq.com/openai"),
+          Map.entry("deepseek", "https://api.deepseek.com"),
+          Map.entry("together", "https://api.together.xyz"),
+          Map.entry("openrouter", "https://openrouter.ai/api"),
+          Map.entry("mistral", "https://api.mistral.ai"),
+          // OpenAI-compatible chat/embeddings endpoints -- real base URLs, no per-SDK wrapper.
+          Map.entry("xai", "https://api.x.ai"),
+          Map.entry("dashscope", "https://dashscope.aliyuncs.com/compatible-mode"),
+          Map.entry("novita", "https://api.novita.ai/openai"),
+          Map.entry("ppq", "https://api.ppq.ai"),
+          // Native, non-OpenAI-compatible protocol, translated in chatComplete/embed directly.
+          Map.entry("anthropic", "https://api.anthropic.com"));
 
   private final ComponentClient componentClient;
 
@@ -77,13 +88,17 @@ public class AiClient {
   }
 
   private String baseUrlFor(ModelRecord model, Credential credential) {
+    return baseUrlFor(model.provider(), credential);
+  }
+
+  private String baseUrlFor(String provider, Credential credential) {
     if (credential != null && credential.baseUrl() != null && !credential.baseUrl().isBlank()) {
       return credential.baseUrl();
     }
-    String fallback = DEFAULT_BASE_URL.get(model.provider() == null ? "" : model.provider().toLowerCase());
+    String fallback = DEFAULT_BASE_URL.get(provider == null ? "" : provider.toLowerCase());
     if (fallback == null) {
       throw new ConfigurationError(
-          "No base URL configured for provider '" + model.provider() + "'. "
+          "No base URL configured for provider '" + provider + "'. "
               + "Set a credential with baseUrl, or use a known provider name.");
     }
     return fallback;
@@ -110,6 +125,13 @@ public class AiClient {
       throw new ConfigurationError("Model " + modelId + " is not a language model");
     }
     Credential credential = resolveCredential(model.credentialId());
+    if ("anthropic".equalsIgnoreCase(model.provider())) {
+      // A baseUrl override still changes where this goes -- baseUrlFor honors it inside
+      // anthropicChatComplete -- it just doesn't switch the wire shape: a provider named
+      // "anthropic" is presumed to still speak Anthropic's own protocol at whatever URL a
+      // caller points it to, the same way this port never speaks two shapes to one provider.
+      return anthropicChatComplete(model, credential, systemPrompt, history);
+    }
     String url = baseUrlFor(model, credential) + "/v1/chat/completions";
 
     ArrayNode messages = MAPPER.createArrayNode();
@@ -136,6 +158,52 @@ public class AiClient {
       }
       JsonNode root = MAPPER.readTree(response.body());
       return root.path("choices").path(0).path("message").path("content").asText();
+    } catch (ConfigurationError e) {
+      throw e;
+    } catch (Exception e) {
+      throw new ConfigurationError("Chat completion call failed: " + e.getMessage());
+    }
+  }
+
+  /** Anthropic's own Messages API ({@code POST /v1/messages}, {@code x-api-key} +
+   * {@code anthropic-version} headers, a top-level {@code system} field instead of a
+   * {@code system}-role message, and {@code content[].text} instead of {@code
+   * choices[0].message.content}) -- proof the one-HTTP-shape design (SPEC-001 SS6 D-7) is a
+   * narrower rebuild of the provider-abstraction capability, not a hard wall around it: a
+   * second real wire protocol translates the same way the first one does, when a provider's
+   * native API is worth adding directly instead of routing through a compatible proxy. */
+  private String anthropicChatComplete(ModelRecord model, Credential credential, String systemPrompt, List<ChatMessage> history) {
+    String url = baseUrlFor(model, credential) + "/v1/messages";
+
+    ArrayNode messages = MAPPER.createArrayNode();
+    for (ChatMessage m : history) {
+      messages.add(MAPPER.createObjectNode().put("role", m.role()).put("content", m.content()));
+    }
+    ObjectNode body = MAPPER.createObjectNode();
+    body.put("model", model.name());
+    body.put("max_tokens", 4096);
+    if (systemPrompt != null && !systemPrompt.isBlank()) {
+      body.put("system", systemPrompt);
+    }
+    body.set("messages", messages);
+
+    try {
+      HttpRequest.Builder builder =
+          HttpRequest.newBuilder(URI.create(url))
+              .timeout(Duration.ofSeconds(60))
+              .header("Content-Type", "application/json")
+              .header("anthropic-version", "2023-06-01");
+      String apiKey = apiKeyFor(credential);
+      if (apiKey != null && !apiKey.isBlank()) {
+        builder.header("x-api-key", apiKey);
+      }
+      HttpRequest request = builder.POST(HttpRequest.BodyPublishers.ofString(MAPPER.writeValueAsString(body))).build();
+      HttpResponse<String> response = HTTP.send(request, HttpResponse.BodyHandlers.ofString());
+      if (response.statusCode() >= 300) {
+        throw new ConfigurationError("Chat completion call to anthropic failed: HTTP " + response.statusCode());
+      }
+      JsonNode root = MAPPER.readTree(response.body());
+      return root.path("content").path(0).path("text").asText();
     } catch (ConfigurationError e) {
       throw e;
     } catch (Exception e) {
@@ -211,5 +279,35 @@ public class AiClient {
 
   public static String base64(byte[] bytes) {
     return Base64.getEncoder().encodeToString(bytes);
+  }
+
+  public record DiscoveredModel(String name, String provider) {}
+
+  /** {@code credentials.py}'s real network call underneath {@code test}/{@code discover}: a
+   * plain {@code GET /v1/models}, the same OpenAI-compatible shape every other call in this
+   * class already speaks. Standing in only for the network call to a real provider, never for
+   * this port's own routing or error handling -- {@code probes/mock_provider.py} answers this
+   * route the same way it answers chat/embeddings/audio. */
+  public List<DiscoveredModel> listModels(Credential credential) {
+    String url = baseUrlFor(credential.provider(), credential) + "/v1/models";
+    try {
+      HttpRequest request = authedRequest(url, credential).GET().build();
+      HttpResponse<String> response = HTTP.send(request, HttpResponse.BodyHandlers.ofString());
+      if (response.statusCode() >= 300) {
+        throw new ConfigurationError("Model list call to " + credential.provider() + " failed: HTTP " + response.statusCode());
+      }
+      JsonNode data = MAPPER.readTree(response.body()).path("data");
+      List<DiscoveredModel> result = new java.util.ArrayList<>();
+      if (data.isArray()) {
+        for (JsonNode entry : data) {
+          result.add(new DiscoveredModel(entry.path("id").asText(), credential.provider()));
+        }
+      }
+      return result;
+    } catch (ConfigurationError e) {
+      throw e;
+    } catch (Exception e) {
+      throw new ConfigurationError("Model list call failed: " + e.getMessage());
+    }
   }
 }

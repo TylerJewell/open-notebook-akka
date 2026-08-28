@@ -1,6 +1,7 @@
 package io.akka.opennotebook.api;
 
 import akka.http.javadsl.model.HttpResponse;
+import akka.http.javadsl.model.MediaTypes;
 import akka.javasdk.annotations.Acl;
 import akka.javasdk.annotations.http.Delete;
 import akka.javasdk.annotations.http.Get;
@@ -11,13 +12,17 @@ import akka.javasdk.client.ComponentClient;
 import akka.javasdk.http.AbstractHttpEndpoint;
 import akka.javasdk.http.HttpResponses;
 import io.akka.opennotebook.application.EpisodeProfileEntity;
+import io.akka.opennotebook.application.EpisodeProfilesView;
 import io.akka.opennotebook.application.PodcastEpisodeEntity;
+import io.akka.opennotebook.application.PodcastEpisodesView;
 import io.akka.opennotebook.application.PodcastGenerationWorkflow;
 import io.akka.opennotebook.application.SpeakerProfileEntity;
+import io.akka.opennotebook.application.SpeakerProfilesView;
 import io.akka.opennotebook.domain.EpisodeProfile;
 import io.akka.opennotebook.domain.PodcastEpisode;
 import io.akka.opennotebook.domain.SpeakerProfile;
 import java.time.Instant;
+import java.util.Base64;
 import java.util.List;
 import java.util.UUID;
 
@@ -27,15 +32,20 @@ import java.util.UUID;
  * -- R26, snake_case wire shape, plus the list/update/duplicate/retry routes the bare-path {@code
  * PodcastEndpoint} never needed.
  *
- * <p><b>Narrowed:</b> {@code listEpisodes} has no backing list view (episodes were always
- * addressed one at a time, the same gap SS1's out-of-scope list closes for notebooks/sources/
- * notes) -- adding one here would need a fourth {@code *View} class for a capability this port
- * already narrows in three other ways (SS10 D-10 single-voice synthesis, D-11 Workflow-not-queue).
- * Declared rather than silently stubbed: returns the single most-recently-created episode this
- * server session has generated, tracked in memory, not the full history a real list view would
- * back. audio is returned as base64 in the JSON body (matching the bare-path {@code
- * PodcastEndpoint}) rather than a separate download URL, since no binary/file-serving route
- * exists in this port.
+ * <p>Speaker profiles, episode profiles and episodes are each backed by their own {@code *View}
+ * ({@link SpeakerProfilesView}, {@link EpisodeProfilesView}, {@link PodcastEpisodesView}), the
+ * same pattern {@code CredentialsView}/{@code ModelsView} already use over a {@code
+ * KeyValueEntity} -- {@code listEpisodes} previously tracked only the most recently generated
+ * episode in a static field; it now lists every episode this instance has ever generated, the
+ * same as the source's own {@code list_podcast_episodes}. Audio is served from its own binary
+ * route ({@code GET /podcasts/episodes/{id}/audio}), matching the source's {@code audio_url}
+ * design, rather than embedded as base64 in every episode's JSON body.
+ *
+ * <p><b>Narrowed, and declared rather than silently dropped:</b> a single-voice text-to-speech
+ * call over the full transcript, not per-segment multi-speaker synthesis (SPEC-001 D-10);
+ * {@code /podcasts/jobs/{job_id}} has no separate surface since a {@link PodcastGenerationWorkflow}
+ * run and its owning {@link PodcastEpisodeEntity}'s status are the same thing here (D-11) --
+ * {@code GET /podcasts/episodes/{id}} already reports it.
  */
 @HttpEndpoint("/api")
 @Acl(allow = @Acl.Matcher(principal = Acl.Principal.ALL))
@@ -60,10 +70,10 @@ public class ApiPodcastEndpoint extends AbstractHttpEndpoint {
 
   public record EpisodeResponse(
       String id, String name, String episode_profile, String speaker_profile, String briefing,
-      String audio_file, String transcript, String outline, String created, String job_status, String error_message) {}
+      String audio_file, String audio_url, String transcript, String outline, String created,
+      String job_status, String error_message) {}
 
   private final ComponentClient componentClient;
-  private static volatile String lastEpisodeId;
 
   public ApiPodcastEndpoint(ComponentClient componentClient) {
     this.componentClient = componentClient;
@@ -73,7 +83,12 @@ public class ApiPodcastEndpoint extends AbstractHttpEndpoint {
   public HttpResponse listSpeakerProfiles() {
     var unauthorized = AuthGuard.check(requestContext());
     if (unauthorized != null) return unauthorized;
-    return HttpResponses.ok(List.of()); // No list view -- see class doc's episode-list narrowing.
+    SpeakerProfilesView.Entries entries =
+        componentClient.forView().method(SpeakerProfilesView::all).invoke();
+    return HttpResponses.ok(
+        entries.items().stream()
+            .map(e -> new SpeakerProfileResponse(e.id(), e.name(), e.description(), e.voiceModelId(), e.speakerNames()))
+            .toList());
   }
 
   @Post("/speaker-profiles")
@@ -159,7 +174,16 @@ public class ApiPodcastEndpoint extends AbstractHttpEndpoint {
   public HttpResponse listEpisodeProfiles() {
     var unauthorized = AuthGuard.check(requestContext());
     if (unauthorized != null) return unauthorized;
-    return HttpResponses.ok(List.of()); // No list view -- see class doc.
+    EpisodeProfilesView.Entries entries =
+        componentClient.forView().method(EpisodeProfilesView::all).invoke();
+    return HttpResponses.ok(
+        entries.items().stream()
+            .map(
+                e ->
+                    new EpisodeProfileResponse(
+                        e.id(), e.name(), e.description(), e.outlineModelId(), e.transcriptModelId(),
+                        e.speakerProfileId(), e.defaultBriefing(), e.numSegments()))
+            .toList());
   }
 
   @Post("/episode-profiles")
@@ -254,10 +278,33 @@ public class ApiPodcastEndpoint extends AbstractHttpEndpoint {
   public HttpResponse listEpisodes() {
     var unauthorized = AuthGuard.check(requestContext());
     if (unauthorized != null) return unauthorized;
-    String id = lastEpisodeId;
-    if (id == null) return HttpResponses.ok(List.of());
-    PodcastEpisode episode = fetch(id);
-    return HttpResponses.ok(episode == null ? List.of() : List.of(toApi(episode)));
+    PodcastEpisodesView.Entries entries =
+        componentClient.forView().method(PodcastEpisodesView::all).invoke();
+    return HttpResponses.ok(entries.items().stream().map(this::toApi).toList());
+  }
+
+  @Get("/podcasts/episodes/{episodeId}")
+  public HttpResponse getEpisode(String episodeId) {
+    var unauthorized = AuthGuard.check(requestContext());
+    if (unauthorized != null) return unauthorized;
+    PodcastEpisode episode = fetch(episodeId);
+    if (episode == null) return HttpResponses.notFound("Episode not found");
+    return HttpResponses.ok(toApi(episode));
+  }
+
+  /** The source's own {@code audio_url} design: a separate binary route rather than base64
+   * embedded in every episode's JSON body. */
+  @Get("/podcasts/episodes/{episodeId}/audio")
+  public HttpResponse getEpisodeAudio(String episodeId) {
+    var unauthorized = AuthGuard.check(requestContext());
+    if (unauthorized != null) return unauthorized;
+    PodcastEpisode episode = fetch(episodeId);
+    if (episode == null || episode.audioBase64() == null) {
+      return HttpResponses.notFound("Episode has no audio file");
+    }
+    byte[] audio = Base64.getDecoder().decode(episode.audioBase64());
+    return HttpResponses.of(
+        akka.http.javadsl.model.StatusCodes.OK, MediaTypes.AUDIO_MPEG.toContentType(), audio);
   }
 
   @Post("/podcasts/generate")
@@ -278,7 +325,6 @@ public class ApiPodcastEndpoint extends AbstractHttpEndpoint {
         .forWorkflow(episodeId)
         .method(PodcastGenerationWorkflow::start)
         .invoke(new PodcastGenerationWorkflow.Start(episodeId, request.notebook_id(), request.episode_profile(), request.episode_name(), briefing));
-    lastEpisodeId = episodeId;
     return HttpResponses.ok(new GenerateResponse(episodeId, "pending", "Podcast generation started", request.episode_profile(), request.episode_name()));
   }
 
@@ -286,7 +332,14 @@ public class ApiPodcastEndpoint extends AbstractHttpEndpoint {
   public HttpResponse deleteEpisode(String episodeId) {
     var unauthorized = AuthGuard.check(requestContext());
     if (unauthorized != null) return unauthorized;
-    if (episodeId.equals(lastEpisodeId)) lastEpisodeId = null;
+    try {
+      componentClient
+          .forEventSourcedEntity(episodeId)
+          .method(PodcastEpisodeEntity::delete)
+          .invoke(new PodcastEpisodeEntity.Deleted(Instant.now()));
+    } catch (Exception ignored) {
+      // Deleting an episode that doesn't exist is a no-op, matching every other delete route.
+    }
     return HttpResponses.ok();
   }
 
@@ -322,7 +375,19 @@ public class ApiPodcastEndpoint extends AbstractHttpEndpoint {
 
   private EpisodeResponse toApi(PodcastEpisode e) {
     return new EpisodeResponse(
-        e.id(), e.name(), e.episodeProfileId(), null, e.briefing(), e.audioBase64(), e.transcript(), e.outline(),
+        e.id(), e.name(), e.episodeProfileId(), null, e.briefing(), e.audioBase64(),
+        audioUrl(e.id(), e.audioBase64()), e.transcript(), e.outline(),
         e.createdAt() == null ? null : e.createdAt().toString(), e.status().name().toLowerCase(), e.errorMessage());
+  }
+
+  private EpisodeResponse toApi(PodcastEpisodesView.Entry e) {
+    return new EpisodeResponse(
+        e.id(), e.name(), e.episodeProfileId(), null, e.briefing(), e.audioBase64().orElse(null),
+        audioUrl(e.id(), e.audioBase64().orElse(null)), e.transcript().orElse(null), e.outline().orElse(null),
+        e.createdAt() == null ? null : e.createdAt().toString(), e.status().toLowerCase(), e.errorMessage().orElse(null));
+  }
+
+  private static String audioUrl(String episodeId, String audioBase64) {
+    return audioBase64 == null ? null : "/api/podcasts/episodes/" + episodeId + "/audio";
   }
 }

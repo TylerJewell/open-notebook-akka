@@ -34,6 +34,9 @@ public class PodcastEpisodeEntity extends EventSourcedEntity<PodcastEpisode, Pod
   @TypeName("episode-failed")
   public record Failed(String errorMessage, Instant at) implements Event {}
 
+  @TypeName("episode-deleted")
+  public record Deleted(Instant at) implements Event {}
+
   public record Create(String notebookId, String episodeProfileId, String name, String briefing, Instant now) {}
 
   @Override
@@ -77,6 +80,11 @@ public class PodcastEpisodeEntity extends EventSourcedEntity<PodcastEpisode, Pod
     return effects().persist(command).thenReply(s -> Done.getInstance());
   }
 
+  public Effect<Done> delete(Deleted command) {
+    if (!currentState().exists()) return effects().error("Episode not found");
+    return effects().persist(command).thenReply(s -> Done.getInstance());
+  }
+
   public ReadOnlyEffect<PodcastEpisode> get() {
     if (!currentState().exists()) return effects().error("Episode not found");
     return effects().reply(currentState());
@@ -92,6 +100,7 @@ public class PodcastEpisodeEntity extends EventSourcedEntity<PodcastEpisode, Pod
       case TranscriptSet e -> currentState().withTranscript(e.transcript());
       case Completed e -> currentState().withCompleted(e.audioBase64());
       case Failed e -> currentState().withFailed(e.errorMessage());
+      case Deleted e -> currentState().deleted();
     };
   }
 }

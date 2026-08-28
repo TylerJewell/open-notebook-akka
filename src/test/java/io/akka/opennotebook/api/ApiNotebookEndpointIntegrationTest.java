@@ -65,7 +65,7 @@ class ApiNotebookEndpointIntegrationTest extends TestKitSupport {
     var source =
         httpClient
             .POST("/api/sources")
-            .withRequestBody(new ApiSourceEndpoint.CreateRequest("text", "hello", null, "t", List.of(), null))
+            .withRequestBody(new ApiSourceEndpoint.CreateRequest("text", "hello", null, null, "t", List.of(), null))
             .responseBodyAs(ApiSourceEndpoint.SourceDetailResponse.class)
             .invoke()
             .body();
